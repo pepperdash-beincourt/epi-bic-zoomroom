@@ -1,8 +1,9 @@
 using System;
 using Newtonsoft.Json;
 using PepperDash.Core;
+using Serilog.Events;
 
-namespace PDT.Plugins.Zoom.Room
+namespace PepperDash.Essentials.Plugins
 {
     /// <summary>
     /// zConfiguration class structure
@@ -24,7 +25,7 @@ namespace PDT.Plugins.Zoom.Room
                 get { return _mute; }
                 set
                 {
-                    Debug.Console(1, "Camera Mute response received: {0}", value);
+                    Debug.LogMessage(LogEventLevel.Information, "Camera Mute response received: {Value}", value);
 
                     if (value == _mute) return;
 
@@ -61,8 +62,11 @@ namespace PDT.Plugins.Zoom.Room
             None = 0,
             Gallery = 1,
             Speaker = 2,
-            Strip = 4,
-            ShareAll = 8,
+            Thumbnail = 3,
+
+            ContentOnly = 4,
+            CancelContentOnly = 5,
+            Dynamic = 6,
         }
 
         public enum eLayoutSize
