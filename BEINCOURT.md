@@ -94,9 +94,43 @@ dotnet build -c Release
 
 ## Maintaining This Fork
 
+### Commit Message Format
+
+All commits **must** follow the [Conventional Commits](https://gist.github.com/qoomon/5dfcdf8eec66a051ecd85625518cfd13) specification:
+
+```
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+**Types and their effect on versioning** (configured in `.releaserc.json`):
+
+| Type | Description | Release |
+|------|-------------|---------|
+| `feat` | New feature | **minor** |
+| `fix` | Bug fix | **patch** |
+| `perf` | Performance improvement | **patch** |
+| `revert` | Revert a previous commit | **patch** |
+| `docs` | Documentation only | none |
+| `style` | Formatting, whitespace | none |
+| `refactor` | Code restructure (no feature/fix) | none |
+| `test` | Adding or fixing tests | none |
+| `build` | Build system or dependency changes | none |
+| `ci` | CI configuration changes | none |
+| `chore` | Other maintenance | none |
+
+**Breaking changes** (any type): append `!` after the type (e.g. `feat!: ...`) or add `BREAKING CHANGE:` in the footer → **major** release.
+
+**Scope overrides** (append to any type as `type(scope): ...`):
+- `(force-patch)` — force a patch bump regardless of type
+- `(no-release)` — suppress a release that would otherwise be triggered
+
 ### For Beincourt Developers
 1. All work goes to `csv-zoom-sandbox` branch
-2. Create PR, ensure tests pass
+2. Create PR, ensure tests pass (commit messages must follow Conventional Commits above)
 3. Get user (Chris Vance) approval
 4. Merge to csv-zoom-sandbox
 5. GitHub Actions builds and publishes .cplz
