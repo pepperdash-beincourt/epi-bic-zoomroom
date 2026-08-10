@@ -35,6 +35,10 @@
       {
         "assets": [
           {
+            "path": "dist/*.cplz",
+            "label": "Essentials Plugin (.cplz)"
+          },
+          {
             "path": "dist/*.tgz",
             "label": "NPM Package"
           }

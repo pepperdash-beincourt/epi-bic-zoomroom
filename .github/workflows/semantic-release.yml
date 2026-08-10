@@ -13,13 +13,70 @@ permissions:
   pull-requests: write
 
 jobs:
+  build:
+    runs-on: windows-latest
+    outputs:
+      cplz-filename: ${{ steps.build.outputs.cplz-filename }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '7.0.x'
+
+      - name: Build plugin
+        id: build
+        run: |
+          # Get version from package.json
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          Write-Host "Building version: $version"
+          
+          # Build the C# project
+          dotnet build src/epi-zoom-room.4Series.csproj -c Release
+          
+          # Run tests
+          dotnet test tests/ -c Release --no-build
+          
+          # Create output directory
+          $outputDir = "${{ github.workspace }}/build-output"
+          New-Item -ItemType Directory -Force -Path $outputDir
+          
+          # Find and copy .cplz file from bin/Release
+          Get-ChildItem -Recurse -Path "${{ github.workspace }}/src" -Filter "*.cplz" | ForEach-Object {
+            Copy-Item $_.FullName -Destination $outputDir
+            $cplzFilename = $_.Name -replace "\.", "-$version."
+            Rename-Item -Path "$outputDir/$($_.Name)" -NewName $cplzFilename
+            Write-Host "CPLZ: $cplzFilename"
+            echo "cplz-filename=$cplzFilename" >> $env:GITHUB_OUTPUT
+          }
+          
+          Write-Host "Build output:"
+          Get-ChildItem -Path $outputDir
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cplz-plugin
+          path: ${{ github.workspace }}/build-output/*.cplz
+          retention-days: 1
+
   release:
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Full history for version detection
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: cplz-plugin
+          path: ./dist
 
       - uses: actions/setup-node@v4
         with:
