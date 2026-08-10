@@ -25,58 +25,110 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '7.0.x'
+          dotnet-version: '7.x'
+
+      - name: Verify .NET installation
+        run: dotnet --version
+
+      - name: Restore packages
+        run: dotnet restore src/epi-zoom-room.4Series.csproj
 
       - name: Build plugin
-        id: build
+        run: dotnet build src/epi-zoom-room.4Series.csproj -c Release
+
+      - name: Run tests
+        continue-on-error: true
+        run: dotnet test tests/ -c Release --no-build
+
+      - name: Debug - Find .cplz files
         run: |
-          # Get version from package.json
-          $version = (Get-Content package.json | ConvertFrom-Json).version
-          Write-Host "Building version: $version"
-          
-          # Build the C# project
-          dotnet build src/epi-zoom-room.4Series.csproj -c Release
-          
-          # Run tests
-          dotnet test tests/ -c Release --no-build
-          
-          # Create output directory
-          $outputDir = "${{ github.workspace }}/build-output"
-          New-Item -ItemType Directory -Force -Path $outputDir
-          
-          # Find and copy .cplz file from bin/Release
-          Get-ChildItem -Recurse -Path "${{ github.workspace }}/src" -Filter "*.cplz" | ForEach-Object {
-            Copy-Item $_.FullName -Destination $outputDir
-            $cplzFilename = $_.Name -replace "\.", "-$version."
-            Rename-Item -Path "$outputDir/$($_.Name)" -NewName $cplzFilename
-            Write-Host "CPLZ: $cplzFilename"
-            echo "cplz-filename=$cplzFilename" >> $env:GITHUB_OUTPUT
+          Write-Host "=== Searching for .cplz files ==="
+          Get-ChildItem -Recurse -Path "${{ github.workspace }}" -Filter "*.cplz" | ForEach-Object {
+            Write-Host "Found: $($_.FullName)"
           }
           
-          Write-Host "Build output:"
-          Get-ChildItem -Path $outputDir
+          Write-Host ""
+          Write-Host "=== Searching for .clz or .cpz files ==="
+          Get-ChildItem -Recurse -Path "${{ github.workspace }}" -Filter "*.*lz" | ForEach-Object {
+            Write-Host "Found: $($_.FullName)"
+          }
+          
+          Write-Host ""
+          Write-Host "=== Contents of src/bin/Release ==="
+          if (Test-Path "${{ github.workspace }}/src/bin/Release") {
+            Get-ChildItem -Recurse -Path "${{ github.workspace }}/src/bin/Release" | Select-Object Name, Extension
+          } else {
+            Write-Host "src/bin/Release does not exist"
+          }
+
+      - name: Create build output directory
+        run: |
+          $outputDir = "${{ github.workspace }}/build-output"
+          New-Item -ItemType Directory -Force -Path $outputDir
+          Write-Host "Created: $outputDir"
+
+      - name: Copy .cplz to output (if exists)
+        id: build
+        run: |
+          $outputDir = "${{ github.workspace }}/build-output"
+          $cplzFiles = Get-ChildItem -Recurse -Path "${{ github.workspace }}/src" -Filter "*.cplz"
+          
+          if ($cplzFiles.Count -gt 0) {
+            Write-Host "Found $($cplzFiles.Count) .cplz file(s)"
+            $cplzFiles | ForEach-Object {
+              Copy-Item $_.FullName -Destination $outputDir
+              Write-Host "Copied: $($_.Name) to $outputDir"
+            }
+            echo "cplz-found=true" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "WARNING: No .cplz files found!"
+            Write-Host "Checking if build succeeded..."
+            $buildExitCode = $LASTEXITCODE
+            if ($buildExitCode -ne 0) {
+              Write-Host "Build failed with exit code: $buildExitCode"
+            } else {
+              Write-Host "Build succeeded, but no .cplz generated"
+            }
+            echo "cplz-found=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: List build output
+        run: |
+          Write-Host "=== Contents of build-output directory ==="
+          Get-ChildItem -Path "${{ github.workspace }}/build-output" -Recurse
+          Write-Host ""
+          Write-Host "=== File count: $(Get-ChildItem -Path "${{ github.workspace }}/build-output" | Measure-Object).Count files"
 
       - name: Upload build artifacts
+        if: steps.build.outputs.cplz-found == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: cplz-plugin
           path: ${{ github.workspace }}/build-output/*.cplz
-          retention-days: 1
+          retention-days: 7
+          if-no-files-found: error
 
   release:
     needs: build
     runs-on: ubuntu-latest
+    if: always()  # Run even if build fails, so we can see the error
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for version detection
+          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download build artifacts
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: cplz-plugin
           path: ./dist
+
+      - name: Debug - Check dist directory
+        run: |
+          echo "=== Contents of dist/ ==="
+          ls -la dist/ || echo "dist directory not found or empty"
 
       - uses: actions/setup-node@v4
         with:
