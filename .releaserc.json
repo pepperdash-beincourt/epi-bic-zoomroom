@@ -54,6 +54,10 @@
     {
       "name": "csv-zoom-sandbox",
       "prerelease": false
+    },
+    {
+      "name": "csv-zoom-sandbox-v2",
+      "prerelease": false
     }
   ]
 }
