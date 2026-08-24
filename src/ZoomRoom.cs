@@ -56,6 +56,11 @@ namespace PepperDash.Essentials.Plugins
 		// Ringing incoming meeting-invite, surfaced as an ActiveCall so the standard Accept/Reject
 		// path works. Answered via AnswerMeetingInvite (the native side cached the full invite).
 		private CodecActiveCallItem _pendingInviteCall;
+		// Fallback safety net: the SDK only notifies of a resolved invite via MeetingInviteTreated
+		// (answered/declined/expired elsewhere) -- a silently-ignored invite gets no such notification,
+		// so this timer drops it from ActiveCalls after MeetingInviteTimeoutMs regardless.
+		private CTimer _pendingInviteTimeoutTimer;
+		private const int DefaultMeetingInviteTimeoutMs = 45000;
 		private string _currentMeetingId = string.Empty;
 		private string _currentMeetingNumber = string.Empty;
 		private string _currentMeetingName = string.Empty;
@@ -66,8 +71,15 @@ namespace PepperDash.Essentials.Plugins
 		private bool _layoutIsOnLastPage;
 		private int _currentPageVideoType; // PageVideoType (0 = GalleryView)
 		private bool _contentSwappedWithThumbnail;
+		private string _currentVideoOrder = "Default";
+		private string _currentThumbnailsPosition = "Bottom";
 		// Screen layout status, driven by the SDK's ScreenLayoutStatus notification.
 		private ScreenLayoutStatusEventArgs _screenLayoutStatus;
+		// Self-view PiP support/state, driven by the SDK's VideoThumbInfo notification.
+		private bool _sdkSelfviewThumbSupported = true;
+		// Hide-self-video (IHasCodecSelfView on/off) state. The ZRC SDK exposes no query, so this is
+		// plugin-cached and reflects the last SetMyVideoHidden this plugin issued.
+		private bool _selfVideoHidden;
 		// Room speaker (audio output) volume state. Level is the Essentials 0-65535 range.
 		private ushort _sdkSpeakerVolumeLevel;
 		private bool _sdkSpeakerMuted;
@@ -118,7 +130,7 @@ namespace PepperDash.Essentials.Plugins
 			Status = new ZoomRoomStatus();
 			Configuration = new ZoomRoomConfiguration();
 
-			_sdkMonitor = new SdkConnectionMonitor(this);
+			_sdkMonitor = new SdkConnectionMonitor(this, () => _controller.RunHealthCheck("scheduled poll"));
 			CommunicationMonitor = _sdkMonitor;
 			DeviceManager.AddDevice(CommunicationMonitor);
 
@@ -265,12 +277,9 @@ namespace PepperDash.Essentials.Plugins
 
 		protected Func<bool> SelfViewIsOnFeedbackFunc
 		{
-			// Self-view is "on" whenever the PiP size is not Off.
-			get
-			{
-				return () => _currentSelfviewPipSize != null
-				&& !"Off".Equals(_currentSelfviewPipSize.Command, StringComparison.OrdinalIgnoreCase);
-			}
+			// Self-view is "on" when the room's own self video is not hidden (IHasCodecSelfView maps to
+			// the SDK's hide-self-video, which removes the ZR's own tiles from its layout locally).
+			get { return () => !_selfVideoHidden; }
 		}
 
 		protected Func<bool> CameraIsOffFeedbackFunc
@@ -421,17 +430,17 @@ namespace PepperDash.Essentials.Plugins
 
 		public void SelfViewModeOn()
 		{
-			// Restore the last visible PiP size (default Size1); a non-Off size shows the self-view.
-			var size = _lastVisibleSelfviewPipSize
-				?? SelfviewPipSizes.FirstOrDefault(s => s.Command.Equals("Size1", StringComparison.OrdinalIgnoreCase))
-				?? SelfviewPipSizes.FirstOrDefault(s => !s.Command.Equals("Off", StringComparison.OrdinalIgnoreCase));
-			if (size != null) SelfviewPipSizeSet(size);
+			// "On" = self-view visible = not hidden.
+			_controller.SetMyVideoHidden(false);
+			_selfVideoHidden = false;
+			SelfviewIsOnFeedback.FireUpdate();
 		}
 
 		public void SelfViewModeOff()
 		{
-			var off = SelfviewPipSizes.FirstOrDefault(s => s.Command.Equals("Off", StringComparison.OrdinalIgnoreCase));
-			if (off != null) SelfviewPipSizeSet(off);
+			_controller.SetMyVideoHidden(true);
+			_selfVideoHidden = true;
+			SelfviewIsOnFeedback.FireUpdate();
 		}
 
 		public void SelfViewModeToggle()
@@ -617,6 +626,9 @@ namespace PepperDash.Essentials.Plugins
 				s => _controller.RepairWithConfiguredCode(),
 				"forceRepairZoom", "Clear stored credentials and re-pair using the configured activation code", ConsoleAccessLevelEnum.AccessOperator);
 
+			// Starts the liveness-poll watchdog that keeps devcomm honest and auto-repairs silent drops.
+			CommunicationMonitor.Start();
+
 			return base.CustomActivate();
 		}
 
@@ -672,6 +684,7 @@ namespace PepperDash.Essentials.Plugins
 		protected override void Initialize()
 		{
 			_controller.ConnectionStateChanged += OnControllerConnectionStateChanged;
+			_controller.HealthStateChanged += OnControllerHealthStateChanged;
 			_controller.PairRoomResult += (s, e) => this.LogInformation("PairRoomResult [{Code}]: {Desc}", e.ErrorCode, ZrcSdkCodes.GetPairRoomResultDescription(e.ErrorCode));
 			_controller.MeetingStatusChanged += OnControllerMeetingStatusChanged;
 			_controller.InstantMeetingStarted += OnControllerInstantMeetingStarted;
@@ -679,6 +692,7 @@ namespace PepperDash.Essentials.Plugins
 			_controller.ExitMeeting += OnControllerExitMeeting;
 			_controller.MeetingNeedsPassword += OnControllerMeetingNeedsPassword;
 			_controller.MeetingInvite += OnControllerMeetingInvite;
+			_controller.MeetingInviteTreated += OnControllerMeetingInviteTreated;
 			_controller.MeetingLockStatusChanged += OnControllerMeetingLockStatusChanged;
 			_controller.AudioMuteStatusChanged += OnControllerAudioMuteStatusChanged;
 			_controller.RecordingStatusChanged += OnControllerRecordingStatusChanged;
@@ -702,6 +716,9 @@ namespace PepperDash.Essentials.Plugins
 			_controller.AirPlayStatusChanged += OnControllerAirPlayStatusChanged;
 			_controller.VideoPageStatusChanged += OnControllerVideoPageStatusChanged;
 			_controller.ScreenLayoutStatusChanged += OnControllerScreenLayoutStatusChanged;
+			_controller.DynamicLayoutOptionChanged += OnControllerDynamicLayoutOptionChanged;
+			_controller.LayoutDiagnostic += OnControllerLayoutDiagnostic;
+			_controller.VideoThumbInfoChanged += OnControllerVideoThumbInfoChanged;
 			_controller.SipCallStatusChanged += OnControllerSipCallStatusChanged;
 			_controller.ContactListChanged += OnControllerContactListChanged;
 			_controller.MeetingListChanged += OnControllerMeetingListChanged;
@@ -772,6 +789,27 @@ namespace PepperDash.Essentials.Plugins
 				}
 			}
 			else if (!online)
+			{
+				StopBookingRefreshTimer();
+				ResetMeetingState();
+				lock (_phonebookSettleLock) _phonebookSettleTimer?.Stop();
+				lock (_directoryLock) _directoryContactsById.Clear();
+				PhonebookSyncState.CodecDisconnected();
+			}
+		}
+
+		// Watchdog-driven truth for silent/half-open drops the SDK never reported. Keeps devcomm honest
+		// and runs the same teardown as a real disconnect when going offline; full on-connect seeding is
+		// left to the SDK's Connected event produced by auto-repair.
+		private void OnControllerHealthStateChanged(object sender, bool online)
+		{
+			if (_isConnected == online) return;
+
+			this.LogInformation("Health watchdog reports {State}", online ? "online" : "offline");
+			_isConnected = online;
+			_sdkMonitor.SetOnline(online);
+
+			if (!online)
 			{
 				StopBookingRefreshTimer();
 				ResetMeetingState();
@@ -955,6 +993,47 @@ namespace PepperDash.Essentials.Plugins
 			};
 			ActiveCalls.Add(_pendingInviteCall);
 			OnCallStatusChange(_pendingInviteCall);
+
+			var timeoutMs = _props.MeetingInviteTimeoutMs > 0 ? _props.MeetingInviteTimeoutMs : DefaultMeetingInviteTimeoutMs;
+			_pendingInviteTimeoutTimer?.Stop();
+			_pendingInviteTimeoutTimer = new CTimer(_ => OnPendingInviteTimedOut(), timeoutMs);
+		}
+
+		// The SDK's only "invite resolved" signal (MeetingInviteTreated) doesn't fire for an invite
+		// that's simply left ringing with no action anywhere -- this is the fallback for that case.
+		private void OnPendingInviteTimedOut()
+		{
+			var item = _pendingInviteCall;
+			if (item == null) return;
+
+			this.LogInformation("Meeting invite from \"{Caller}\" timed out with no response after {TimeoutMs}ms — removing from active calls",
+				item.Name, _props.MeetingInviteTimeoutMs > 0 ? _props.MeetingInviteTimeoutMs : DefaultMeetingInviteTimeoutMs);
+
+			item.Status = eCodecCallStatus.Disconnected;
+			ActiveCalls.Remove(item);
+			OnCallStatusChange(item);
+			_pendingInviteCall = null;
+		}
+
+		private void OnControllerMeetingInviteTreated(object sender, MeetingInviteTreatedEventArgs e)
+		{
+			// Fires when the invite is resolved by any means other than our own AcceptCall/RejectCall
+			// (e.g. answered/declined on another paired device, or expired/cancelled by the caller).
+			_pendingInviteTimeoutTimer?.Stop();
+
+			var item = _pendingInviteCall;
+			if (item == null || !string.Equals(item.Number, e.MeetingNumber, StringComparison.Ordinal))
+				return; // already resolved locally, or this is a different invite
+
+			this.LogInformation("MeetingInvite from \"{Caller}\" treated elsewhere: accepted={Accepted}", item.Name, e.Accepted);
+
+			// AcceptCall/RejectCall already promote/clear locally-answered invites; this only needs to
+			// clean up when nothing local has touched it yet (accepted=false is the common case here,
+			// but even accepted=true elsewhere means it's no longer "ringing" for this device).
+			item.Status = eCodecCallStatus.Disconnected;
+			ActiveCalls.Remove(item);
+			OnCallStatusChange(item);
+			_pendingInviteCall = null;
 		}
 
 		private void OnControllerMeetingLockStatusChanged(object sender, SdkEventArgs e)
@@ -1082,6 +1161,7 @@ namespace PepperDash.Essentials.Plugins
 		private void OnControllerSharingStatusChanged(object sender, SharingStatusEventArgs e)
 		{
 			_sdkSharingState = e.SharingState;
+			UpdateMeetingInfo();
 			SharingContentIsOnFeedback.FireUpdate();
 			ReceivingContent.FireUpdate();
 			CanSwapContentWithThumbnailFeedback.FireUpdate();
@@ -1112,6 +1192,15 @@ namespace PepperDash.Essentials.Plugins
 			LayoutViewIsOnLastPageFeedback.FireUpdate();
 		}
 
+		private void OnControllerVideoThumbInfoChanged(object sender, VideoThumbInfoEventArgs e)
+		{
+			this.LogDebug("VideoThumbInfo: isSupported={IsSupported} position={Position} size={Size} layout={Layout}",
+				e.IsSupported, e.Position, e.Size, LastSelectedLayout);
+
+			_sdkSelfviewThumbSupported = e.IsSupported;
+			SelfviewPipSizeFeedback.FireUpdate();
+		}
+
 		private void OnControllerScreenLayoutStatusChanged(object sender, ScreenLayoutStatusEventArgs e)
 		{
 			_screenLayoutStatus = e;
@@ -1120,11 +1209,30 @@ namespace PepperDash.Essentials.Plugins
 			if (e.LayoutInfos != null && e.LayoutInfos.Length > 0)
 			{
 				var primaryScreen = e.LayoutInfos[0];
-				LastSelectedLayout = MapScreenLayoutSourceTypeToLayoutStyle(primaryScreen.Layout);
-				LocalLayoutFeedback.FireUpdate();
+
+				this.LogDebug("ScreenLayoutStatus: screen={Screen} rawLayout={RawLayout} mappedLayout={MappedLayout}",
+					primaryScreen.Screen, primaryScreen.Layout, MapScreenLayoutSourceTypeToLayoutStyle(primaryScreen.Layout));
+				if (primaryScreen.LayoutCtrlInfos != null)
+				{
+					foreach (var ctrl in primaryScreen.LayoutCtrlInfos)
+					{
+						this.LogDebug("  ctrl: rawLayout={RawLayout} mappedLayout={MappedLayout} enable={Enable} visible={Visible}",
+							ctrl.Layout, MapScreenLayoutSourceTypeToLayoutStyle(ctrl.Layout), ctrl.Enable, ctrl.Visible);
+					}
+				}
+
+				// Confirmed live via ScreenLayoutStatus ctrl infos: the controller exposes Multi-Speaker as
+				// a distinct layout whose ScreenLayoutSourceType is -1 (the SDK has no dedicated enum value
+				// for it, so it arrives as None). Dynamic Gallery is the separate DynamicView (10).
+				var mappedCurrentLayout = MapScreenLayoutSourceTypeToLayoutStyle(primaryScreen.Layout);
+				if (mappedCurrentLayout != zConfiguration.eLayoutStyle.None)
+				{
+					LastSelectedLayout = mappedCurrentLayout;
+					LocalLayoutFeedback.FireUpdate();
+				}
 
 				// Compute available layouts from the ctrlInfos (enabled entries).
-				ComputeAvailableLayoutsFromScreenStatus(primaryScreen);
+				ComputeAvailableLayoutsFromScreenStatus(primaryScreen, e.IsInContentOnly);
 			}
 
 			// Update content swap state from the SDK booleans.
@@ -1136,6 +1244,22 @@ namespace PepperDash.Essentials.Plugins
 			OnLayoutInfoChanged();
 		}
 
+		// DynamicLayoutType last reported by the SDK (SpeakersOnBottom=0/Middle=1/Top=2, Unknown=-1).
+		// On single-screen rooms this sub-option distinguishes Dynamic Gallery from Multi-Speaker.
+		private int _dynamicLayoutOption = -1;
+
+		private void OnControllerDynamicLayoutOptionChanged(object sender, SdkEventArgs e)
+		{
+			_dynamicLayoutOption = e.ErrorCode;
+			this.LogInformation("DynamicLayoutOption changed: {DynamicLayoutOption} (SpeakersOnBottom=0/Middle=1/Top=2)", _dynamicLayoutOption);
+		}
+
+		// Layout tracer: logs every layout-helper notification the SDK delivers, for investigating layout behavior.
+		private void OnControllerLayoutDiagnostic(object sender, SdkEventArgs e)
+		{
+			this.LogDebug("LayoutTrace: {Message} (hint={Hint})", e.Message, e.ErrorCode);
+		}
+
 		/// <summary>
 		/// Maps SDK ScreenLayoutSourceType int to the Essentials eLayoutStyle enum.
 		/// </summary>
@@ -1144,15 +1268,19 @@ namespace PepperDash.Essentials.Plugins
 			// ScreenLayoutSourceType: None=-1, ActiveVideo=0, SelfVideo=1, PinnedVideo=2,
 			// Spotlight=3, Gallery=4, SharedContent=5, Background=6, LocalView=7,
 			// ImmersiveView=8, ZoomAppsView=9, DynamicView=10, ThumbnailView=11, ThumbnailShareView=12
+			//
+			// Confirmed live via ScreenLayoutStatus ctrl infos: Dynamic Gallery = DynamicView (10) and
+			// Multi-Speaker = -1 (the SDK exposes no dedicated ScreenLayoutSourceType for Multi-Speaker,
+			// so it reports as None/-1). These are distinct, separately-selectable layouts.
 			return screenLayoutSourceType switch
 			{
-				0 => zConfiguration.eLayoutStyle.Speaker,    // ActiveVideo = speaker/active-speaker view
-				3 => zConfiguration.eLayoutStyle.Speaker,    // Spotlight = speaker variant
-				4 => zConfiguration.eLayoutStyle.Gallery,    // Gallery
-				5 => zConfiguration.eLayoutStyle.ContentOnly, // SharedContent = content-only
-				10 => zConfiguration.eLayoutStyle.Dynamic,   // DynamicView
-				11 => zConfiguration.eLayoutStyle.Thumbnail, // ThumbnailView
-				12 => zConfiguration.eLayoutStyle.Thumbnail, // ThumbnailShareView
+				-1 => zConfiguration.eLayoutStyle.MultiSpeaker,     // No dedicated SDK type -- controller's "Multi-Speaker"
+				0 => zConfiguration.eLayoutStyle.Speaker,           // ActiveVideo = single active-speaker view
+				4 => zConfiguration.eLayoutStyle.Gallery,           // Gallery
+				5 => zConfiguration.eLayoutStyle.ContentOnly,       // SharedContent = "Shared Content"
+				10 => zConfiguration.eLayoutStyle.Dynamic,          // DynamicView = "Dynamic Gallery"
+				11 => zConfiguration.eLayoutStyle.Thumbnail,        // ThumbnailView
+				12 => zConfiguration.eLayoutStyle.ThumbnailAndShare, // ThumbnailShareView = "Thumbnail & Share"
 				_ => zConfiguration.eLayoutStyle.None,
 			};
 		}
@@ -1160,7 +1288,7 @@ namespace PepperDash.Essentials.Plugins
 		/// <summary>
 		/// Computes AvailableLayouts from the SDK's ScreenLayoutCtrlInfo entries for the primary screen.
 		/// </summary>
-		private void ComputeAvailableLayoutsFromScreenStatus(ScreenLayoutInfoEventArgs screenInfo)
+		private void ComputeAvailableLayoutsFromScreenStatus(ScreenLayoutInfoEventArgs screenInfo, bool isInContentOnly)
 		{
 			if (screenInfo.LayoutCtrlInfos == null || screenInfo.LayoutCtrlInfos.Length == 0)
 				return; // keep previous available layouts if no ctrl info provided
@@ -1170,12 +1298,17 @@ namespace PepperDash.Essentials.Plugins
 			{
 				if (!ctrl.Enable) continue;
 				var mapped = MapScreenLayoutSourceTypeToLayoutStyle(ctrl.Layout);
-				if (mapped != zConfiguration.eLayoutStyle.None)
-					available |= mapped;
+				if (mapped == zConfiguration.eLayoutStyle.None)
+					continue;
+				// Multi-Speaker can't be commanded via the SDK (maps to None/-1); hide the button unless opted in.
+				if (mapped == zConfiguration.eLayoutStyle.MultiSpeaker && !_props.ShowMultiSpeakerLayout)
+					continue;
+				available |= mapped;
 			}
 
-			// Always include CancelContentOnly if ContentOnly is available (it's the toggle-off action).
-			if (available.HasFlag(zConfiguration.eLayoutStyle.ContentOnly))
+			// CancelContentOnly is only meaningful while the SDK reports we're actually IN content-only
+			// mode -- ContentOnly being an available *destination* doesn't mean there's anything to cancel.
+			if (isInContentOnly)
 				available |= zConfiguration.eLayoutStyle.CancelContentOnly;
 
 			if (available != zConfiguration.eLayoutStyle.None)
@@ -1243,12 +1376,19 @@ namespace PepperDash.Essentials.Plugins
 		}
 
 		/// <summary>
-		/// Starts sharing HDMI source
-		/// </summary>
-		/// <summary>
 		/// Starts sharing the HDMI source (Zoom "black magic" cable share), also shown locally.
+		/// Requires an HDMI source physically connected and providing an active signal -- if not,
+		/// the SDK call fails immediately (see isBlackMagicConnected/isBlackMagicDataAvailable).
 		/// </summary>
-		public override void StartSharing() { _controller.ShareBlackMagic(true, true); }
+		public override void StartSharing()
+		{
+			if (!Status.Sharing.isBlackMagicConnected || !Status.Sharing.isBlackMagicDataAvailable)
+			{
+				this.LogWarning("StartSharing: no HDMI source detected (connected={Connected} dataAvailable={DataAvailable}) — ShareBlackMagic will likely fail",
+					Status.Sharing.isBlackMagicConnected, Status.Sharing.isBlackMagicDataAvailable);
+			}
+			_controller.ShareBlackMagic(true, false);
+		}
 
 		/// <summary>
 		/// Stops sharing the current presentation
@@ -1465,6 +1605,14 @@ namespace PepperDash.Essentials.Plugins
 																				  ==
 																				  (a.AvailableLayouts &
 																				   zConfiguration.eLayoutStyle.Dynamic));
+					trilist.SetBool(joinMap.LayoutMultiSpeakerIsAvailable.JoinNumber, zConfiguration.eLayoutStyle.MultiSpeaker
+																				  ==
+																				  (a.AvailableLayouts &
+																				   zConfiguration.eLayoutStyle.MultiSpeaker));
+					trilist.SetBool(joinMap.LayoutThumbnailAndShareIsAvailable.JoinNumber, zConfiguration.eLayoutStyle.ThumbnailAndShare
+																				  ==
+																				  (a.AvailableLayouts &
+																				   zConfiguration.eLayoutStyle.ThumbnailAndShare));
 
 					// pass the names used to set the layout through the bridge
 					trilist.SetString(joinMap.LayoutGalleryIsAvailable.JoinNumber, zConfiguration.eLayoutStyle.Gallery.ToString());
@@ -1473,6 +1621,8 @@ namespace PepperDash.Essentials.Plugins
 					trilist.SetString(joinMap.LayoutShareAllIsAvailable.JoinNumber, zConfiguration.eLayoutStyle.ContentOnly.ToString());
 					trilist.SetString(joinMap.LayoutCancelContentOnlyIsAvailable.JoinNumber, zConfiguration.eLayoutStyle.CancelContentOnly.ToString());
 					trilist.SetString(joinMap.LayoutDynamicIsAvailable.JoinNumber, zConfiguration.eLayoutStyle.Dynamic.ToString());
+					trilist.SetString(joinMap.LayoutMultiSpeakerIsAvailable.JoinNumber, zConfiguration.eLayoutStyle.MultiSpeaker.ToString());
+					trilist.SetString(joinMap.LayoutThumbnailAndShareIsAvailable.JoinNumber, zConfiguration.eLayoutStyle.ThumbnailAndShare.ToString());
 				};
 
 				trilist.SetSigFalseAction(joinMap.SwapContentWithThumbnail.JoinNumber, () => layoutsCodec.SwapContentWithThumbnail());
@@ -1655,6 +1805,11 @@ namespace PepperDash.Essentials.Plugins
 				AcceptCall(incomingCall);
 		}
 
+		// A ringing (unanswered) invite isn't actually "in a call" -- only report true once a call
+		// is answered/connected, so mobile control doesn't show an in-call state for a pending invite.
+		public override bool IsInCall =>
+			ActiveCalls != null && ActiveCalls.Any(c => c.IsActiveCall && c.Status != eCodecCallStatus.Ringing);
+
 		public override void AcceptCall(CodecActiveCallItem call)
 		{
 			if (call == null) return;
@@ -1664,6 +1819,7 @@ namespace PepperDash.Essentials.Plugins
 			// status promotes this ActiveCall to Connected.
 			if (call.Direction == eCodecCallDirection.Incoming && call.Status == eCodecCallStatus.Ringing)
 			{
+				_pendingInviteTimeoutTimer?.Stop();
 				_controller.AnswerMeetingInvite(true);
 				_pendingInviteCall = null;
 				return;
@@ -1686,14 +1842,15 @@ namespace PepperDash.Essentials.Plugins
 		{
 			// Decline the incoming meeting invite via the SDK (answers the cached invite with
 			// accept=false), then clear the ringing ActiveCall.
+			_pendingInviteTimeoutTimer?.Stop();
 			_controller.AnswerMeetingInvite(false);
 
 			var item = call ?? _pendingInviteCall;
 			if (item != null)
 			{
 				item.Status = eCodecCallStatus.Disconnected;
-				OnCallStatusChange(item);
 				ActiveCalls.Remove(item);
+				OnCallStatusChange(item);
 			}
 			_pendingInviteCall = null;
 		}
@@ -2751,25 +2908,52 @@ namespace PepperDash.Essentials.Plugins
 
 		public void SelfviewPipPositionToggle()
 		{
-			if (_currentSelfviewPipPosition != null)
-			{
-				var nextPipPositionIndex = SelfviewPipPositions.IndexOf(_currentSelfviewPipPosition) + 1;
+			var available = AvailableSelfviewPipPositions;
+			if (_currentSelfviewPipPosition == null || available.Count == 0) return;
 
-				if (nextPipPositionIndex >= SelfviewPipPositions.Count)
-					// Check if we need to loop back to the first item in the list
-					nextPipPositionIndex = 0;
+			var nextPipPositionIndex = available.IndexOf(_currentSelfviewPipPosition) + 1;
 
-				SelfviewPipPositionSet(SelfviewPipPositions[nextPipPositionIndex]);
-			}
+			if (nextPipPositionIndex >= available.Count || nextPipPositionIndex < 0)
+				// Not found (current position isn't valid for this layout) or wrapped past the end.
+				nextPipPositionIndex = 0;
+
+			SelfviewPipPositionSet(available[nextPipPositionIndex]);
 		}
 
 		public List<CodecCommandWithLabel> SelfviewPipPositions = new List<CodecCommandWithLabel>()
 		{
-			new CodecCommandWithLabel("UpLeft", "Center Left"),
-			new CodecCommandWithLabel("UpRight", "Center Right"),
+			new CodecCommandWithLabel("UpLeft", "Upper Left"),
+			new CodecCommandWithLabel("UpRight", "Upper Right"),
 			new CodecCommandWithLabel("DownRight", "Lower Right"),
 			new CodecCommandWithLabel("DownLeft", "Lower Left")
 		};
+
+		// Which self-view PiP positions make sense per layout. No layout-specific restrictions are known
+		// yet -- layouts not listed fall back to all positions -- verify/tune against the physical
+		// controller UI using the VideoThumbInfoChanged debug log ("VideoThumbInfo: ...").
+		private static readonly Dictionary<zConfiguration.eLayoutStyle, string[]> SelfviewPositionsByLayout = new()
+		{
+			{ zConfiguration.eLayoutStyle.ContentOnly, Array.Empty<string>() }, // full-screen share -- no floating PiP to position
+			{ zConfiguration.eLayoutStyle.CancelContentOnly, Array.Empty<string>() },
+		};
+
+		/// <summary>
+		/// Self-view PiP positions valid for the currently selected layout, further gated by the SDK's
+		/// VideoThumbInfo.isSupported flag (empty when the SDK reports the self-view thumb isn't
+		/// supported at all in the current context, since there's nothing to position).
+		/// </summary>
+		public List<CodecCommandWithLabel> AvailableSelfviewPipPositions
+		{
+			get
+			{
+				if (!_sdkSelfviewThumbSupported)
+					return new List<CodecCommandWithLabel>();
+
+				return SelfviewPositionsByLayout.TryGetValue(LastSelectedLayout, out var allowed)
+					? SelfviewPipPositions.Where(p => allowed.Contains(p.Command)).ToList()
+					: SelfviewPipPositions;
+			}
+		}
 
 		private void ComputeSelfviewPipPositionStatus()
 		{
@@ -2805,16 +2989,16 @@ namespace PepperDash.Essentials.Plugins
 
 		public void SelfviewPipSizeToggle()
 		{
-			if (_currentSelfviewPipSize != null)
-			{
-				var nextPipSizeIndex = SelfviewPipSizes.IndexOf(_currentSelfviewPipSize) + 1;
+			var available = AvailableSelfviewPipSizes;
+			if (_currentSelfviewPipSize == null || available.Count == 0) return;
 
-				if (nextPipSizeIndex >= SelfviewPipSizes.Count)
-					// Check if we need to loop back to the first item in the list
-					nextPipSizeIndex = 0;
+			var nextPipSizeIndex = available.IndexOf(_currentSelfviewPipSize) + 1;
 
-				SelfviewPipSizeSet(SelfviewPipSizes[nextPipSizeIndex]);
-			}
+			if (nextPipSizeIndex >= available.Count || nextPipSizeIndex < 0)
+				// Not found (current size isn't valid for this layout) or wrapped past the end.
+				nextPipSizeIndex = 0;
+
+			SelfviewPipSizeSet(available[nextPipSizeIndex]);
 		}
 
 		public List<CodecCommandWithLabel> SelfviewPipSizes = new List<CodecCommandWithLabel>()
@@ -2825,6 +3009,37 @@ namespace PepperDash.Essentials.Plugins
 			new CodecCommandWithLabel("Size3", "Size 3"),
 			new CodecCommandWithLabel("Strip", "Strip")
 		};
+
+		// Which self-view PiP sizes make sense per layout. Best-effort starting point based on Zoom UX
+		// conventions (floating self-view PiP is redundant/unavailable once your own video is already
+		// full-screen shared content, or already shown in a thumbnail strip) -- verify/tune against the
+		// physical controller UI using the VideoThumbInfoChanged debug log ("VideoThumbInfo: ...").
+		// Layouts not listed here fall back to all sizes being offered.
+		private static readonly Dictionary<zConfiguration.eLayoutStyle, string[]> SelfviewSizesByLayout = new()
+		{
+			{ zConfiguration.eLayoutStyle.Thumbnail, new[] { "Off", "Size1", "Size2", "Size3" } }, // Strip is redundant -- already a thumbnail strip
+			{ zConfiguration.eLayoutStyle.ThumbnailAndShare, new[] { "Off", "Size1", "Size2", "Size3" } },
+			{ zConfiguration.eLayoutStyle.ContentOnly, new[] { "Off" } }, // full-screen share -- no room for a floating PiP
+			{ zConfiguration.eLayoutStyle.CancelContentOnly, new[] { "Off" } },
+		};
+
+		/// <summary>
+		/// Self-view PiP sizes valid for the currently selected layout, further gated by the SDK's
+		/// VideoThumbInfo.isSupported flag (only "Off" is offered when the SDK reports the self-view
+		/// thumb isn't supported at all in the current context).
+		/// </summary>
+		public List<CodecCommandWithLabel> AvailableSelfviewPipSizes
+		{
+			get
+			{
+				if (!_sdkSelfviewThumbSupported)
+					return SelfviewPipSizes.Where(s => s.Command.Equals("Off", StringComparison.OrdinalIgnoreCase)).ToList();
+
+				return SelfviewSizesByLayout.TryGetValue(LastSelectedLayout, out var allowed)
+					? SelfviewPipSizes.Where(s => allowed.Contains(s.Command)).ToList()
+					: SelfviewPipSizes;
+			}
+		}
 
 		private void ComputeSelfviewPipSizeStatus()
 		{
@@ -2936,6 +3151,10 @@ namespace PepperDash.Essentials.Plugins
 
 		public zConfiguration.eLayoutStyle AvailableLayouts { get; private set; }
 
+		public string CurrentVideoOrder { get; private set; } = "Default";
+
+		public string CurrentThumbnailsPosition { get; private set; } = "Bottom";
+
 		/// <summary>
 		/// Determines available layouts from SDK ScreenLayoutStatus when available,
 		/// otherwise falls back to reporting all layouts as available.
@@ -2944,7 +3163,7 @@ namespace PepperDash.Essentials.Plugins
 		{
 			if (_screenLayoutStatus?.LayoutInfos != null && _screenLayoutStatus.LayoutInfos.Length > 0)
 			{
-				ComputeAvailableLayoutsFromScreenStatus(_screenLayoutStatus.LayoutInfos[0]);
+				ComputeAvailableLayoutsFromScreenStatus(_screenLayoutStatus.LayoutInfos[0], _screenLayoutStatus.IsInContentOnly);
 				this.LogInformation("availablelayouts: {AvailableLayouts} (from SDK ScreenLayoutStatus)", AvailableLayouts);
 				return;
 			}
@@ -2952,9 +3171,11 @@ namespace PepperDash.Essentials.Plugins
 			// Fallback: no ScreenLayoutStatus received yet. Report all layouts as available.
 			AvailableLayouts = zConfiguration.eLayoutStyle.Gallery
 							 | zConfiguration.eLayoutStyle.Speaker
+							 | zConfiguration.eLayoutStyle.MultiSpeaker
 							 | zConfiguration.eLayoutStyle.Thumbnail
 							 | zConfiguration.eLayoutStyle.ContentOnly
 							 | zConfiguration.eLayoutStyle.CancelContentOnly
+							 | zConfiguration.eLayoutStyle.ThumbnailAndShare
 							 | zConfiguration.eLayoutStyle.Dynamic;
 			this.LogInformation("availablelayouts: {AvailableLayouts} (static fallback — no SDK data yet)", AvailableLayouts);
 		}
@@ -2990,27 +3211,91 @@ namespace PepperDash.Essentials.Plugins
 			LastSelectedLayout = layoutStyle;
 			LocalLayoutFeedback.FireUpdate();
 
-			// Map Essentials layout style -> ZRC SDK VideoLayoutStyle int.
-			// This must NOT be a direct (int) cast: eLayoutStyle is a [Flags] enum
-			// (Gallery=1, Speaker=2, Strip=4, ShareAll=8) whose values do not line up
-			// with the SDK's VideoLayoutStyle (Gallery=1, Speaker=2, Thumbnail=3,
-			// ContentOnly=4). The previous code cast to SetVideoOrder, which only
-			// reorders participant tiles and ignored Strip/ShareAll (out of range).
-			int videoLayoutStyle;
+			// CancelContentOnly is a VideoLayoutStyle-only action -- there's no ScreenLayoutSourceType
+			// equivalent to "leave content-only mode", so it stays on the deprecated call.
+			if (layoutStyle == zConfiguration.eLayoutStyle.CancelContentOnly)
+			{
+				_controller.UpdateVideoLayoutStyle(5); // VideoLayoutStyleCancelContentOnly
+				return;
+			}
+
+			// Map Essentials layout style -> SDK ScreenLayoutSourceType int (kept in sync with
+			// MapScreenLayoutSourceTypeToLayoutStyle above so commanded/reported layouts agree).
+			// Uses SetScreenLayout, not the deprecated UpdateVideoLayoutStyle/VideoLayoutStyle, since
+			// MultiSpeaker/ThumbnailAndShare have no VideoLayoutStyle equivalent.
+			int screenLayoutSourceType;
 			switch (layoutStyle)
 			{
-				case zConfiguration.eLayoutStyle.Gallery: videoLayoutStyle = 1; break; // VideoLayoutStyleGallery
-				case zConfiguration.eLayoutStyle.Speaker: videoLayoutStyle = 2; break; // VideoLayoutStyleSpeaker
-				case zConfiguration.eLayoutStyle.Thumbnail: videoLayoutStyle = 3; break; // VideoLayoutStyleThumbnail
-				case zConfiguration.eLayoutStyle.ContentOnly: videoLayoutStyle = 4; break; // VideoLayoutStyleContentOnly
-				case zConfiguration.eLayoutStyle.CancelContentOnly: videoLayoutStyle = 5; break; // VideoLayoutStyleCancelContentOnly
-				case zConfiguration.eLayoutStyle.Dynamic: videoLayoutStyle = 6; break; // VideoLayoutStyleDynamic
+				case zConfiguration.eLayoutStyle.Speaker: screenLayoutSourceType = 0; break;           // ActiveVideo
+				case zConfiguration.eLayoutStyle.Gallery: screenLayoutSourceType = 4; break;            // Gallery
+				case zConfiguration.eLayoutStyle.ContentOnly: screenLayoutSourceType = 5; break;        // SharedContent
+				case zConfiguration.eLayoutStyle.Dynamic: screenLayoutSourceType = 10; break;           // DynamicView = "Dynamic Gallery"
+				case zConfiguration.eLayoutStyle.MultiSpeaker: screenLayoutSourceType = -1; break;      // No dedicated SDK type -- controller's "Multi-Speaker" (confirmed live via ctrl infos)
+				case zConfiguration.eLayoutStyle.Thumbnail: screenLayoutSourceType = 11; break;         // ThumbnailView
+				case zConfiguration.eLayoutStyle.ThumbnailAndShare: screenLayoutSourceType = 12; break; // ThumbnailShareView
 				default:
-					this.LogWarning("SetLayout: no SDK VideoLayoutStyle mapping for {LayoutStyle}", layoutStyle);
+					this.LogWarning("SetLayout: no SDK ScreenLayoutSourceType mapping for {LayoutStyle}", layoutStyle);
 					return;
 			}
 
-			_controller.UpdateVideoLayoutStyle(videoLayoutStyle);
+			_controller.SetScreenLayout(0, screenLayoutSourceType); // screen 0 = primary
+		}
+
+		public void SetVideoOrder(string videoOrderCommand)
+		{
+			var normalized = (videoOrderCommand ?? "").Trim();
+			var sdkValue = normalized.ToLowerInvariant() switch
+			{
+				"default" => 0,
+				"alphabetical" => 1,
+				"reversealphabetical" or "reverse alphabetical" => 2,
+				_ => -1,
+			};
+
+			if (sdkValue < 0)
+			{
+				this.LogWarning("SetVideoOrder: unrecognized value '{VideoOrderCommand}' — ignoring", videoOrderCommand);
+				return;
+			}
+
+			_controller.SetVideoOrder(sdkValue);
+			CurrentVideoOrder = normalized.Equals("reversealphabetical", StringComparison.OrdinalIgnoreCase)
+				|| normalized.Equals("reverse alphabetical", StringComparison.OrdinalIgnoreCase)
+					? "ReverseAlphabetical"
+					: normalized.Length > 0 ? char.ToUpperInvariant(normalized[0]) + normalized.Substring(1).ToLowerInvariant() : "Default";
+			if (CurrentVideoOrder.Equals("Alphabetical", StringComparison.Ordinal))
+				CurrentVideoOrder = "Alphabetical";
+			if (CurrentVideoOrder.Equals("Reversealphabetical", StringComparison.Ordinal))
+				CurrentVideoOrder = "ReverseAlphabetical";
+			if (CurrentVideoOrder.Equals("Default", StringComparison.Ordinal))
+				CurrentVideoOrder = "Default";
+
+			OnLayoutInfoChanged();
+		}
+
+		public void SetThumbnailsPosition(string thumbnailsPositionCommand)
+		{
+			var normalized = (thumbnailsPositionCommand ?? "").Trim();
+			// SDK ThumbnailsPositionType: Bottom = 0, Top = 1.
+			var sdkValue = normalized.ToLowerInvariant() switch
+			{
+				"top" => 1,
+				"bottom" => 0,
+				_ => -1,
+			};
+
+			if (sdkValue < 0)
+			{
+				this.LogWarning("SetThumbnailsPosition: unrecognized value '{ThumbnailsPositionCommand}' — ignoring", thumbnailsPositionCommand);
+				return;
+			}
+
+			_controller.ChangeThumbnailsPosition(sdkValue);
+			CurrentThumbnailsPosition = normalized.Length > 0
+				? (normalized.Equals("top", StringComparison.OrdinalIgnoreCase) ? "Top" : "Bottom")
+				: "Bottom";
+
+			OnLayoutInfoChanged();
 		}
 
 		public void SwapContentWithThumbnail()
@@ -3053,11 +3338,7 @@ namespace PepperDash.Essentials.Plugins
 
 		public void LocalLayoutToggle()
 		{
-			var currentLayout = LocalLayoutFeedback.StringValue;
-
-			var eCurrentLayout = (int)Enum.Parse(typeof(zConfiguration.eLayoutStyle), currentLayout, true);
-
-			var nextLayout = GetNextLayout(eCurrentLayout);
+			var nextLayout = GetNextLayout(LastSelectedLayout);
 
 			if (nextLayout != zConfiguration.eLayoutStyle.None)
 			{
@@ -3065,32 +3346,36 @@ namespace PepperDash.Essentials.Plugins
 			}
 		}
 
+		// Cycle order for LocalLayoutToggle(). Share-related layouts (ContentOnly/CancelContentOnly/
+		// ThumbnailAndShare) are intentionally excluded -- those are driven by sharing state, not this toggle.
+		private static readonly zConfiguration.eLayoutStyle[] LayoutCycleOrder =
+		{
+			zConfiguration.eLayoutStyle.Gallery,
+			zConfiguration.eLayoutStyle.Speaker,
+			zConfiguration.eLayoutStyle.MultiSpeaker,
+			zConfiguration.eLayoutStyle.Thumbnail,
+			zConfiguration.eLayoutStyle.Dynamic,
+		};
+
 		/// <summary>
-		/// Tries to get the next available layout
+		/// Tries to get the next available layout, wrapping around <see cref="LayoutCycleOrder"/>.
 		/// </summary>
-		/// <param name="currentLayout"></param>
-		/// <returns></returns>
-		private zConfiguration.eLayoutStyle GetNextLayout(int currentLayout)
+		private zConfiguration.eLayoutStyle GetNextLayout(zConfiguration.eLayoutStyle currentLayout)
 		{
 			if (AvailableLayouts == zConfiguration.eLayoutStyle.None)
 			{
 				return zConfiguration.eLayoutStyle.None;
 			}
 
-			// Enum values are sequential: Gallery=1, Speaker=2, Thumbnail=3, ContentOnly=4, CancelContentOnly=5, Dynamic=6
-			// Advance to the next value, wrapping from Dynamic back to Gallery
-			var next = currentLayout >= (int)zConfiguration.eLayoutStyle.Dynamic
-				? zConfiguration.eLayoutStyle.Gallery
-				: (zConfiguration.eLayoutStyle)(currentLayout + 1);
+			var startIndex = Array.IndexOf(LayoutCycleOrder, currentLayout);
+			for (var offset = 1; offset <= LayoutCycleOrder.Length; offset++)
+			{
+				var candidate = LayoutCycleOrder[(startIndex + offset + LayoutCycleOrder.Length) % LayoutCycleOrder.Length];
+				if (AvailableLayouts.HasFlag(candidate))
+					return candidate;
+			}
 
-			if ((AvailableLayouts & next) == next)
-			{
-				return next;
-			}
-			else
-			{
-				return GetNextLayout((int)next);
-			}
+			return zConfiguration.eLayoutStyle.None;
 		}
 
 		public void LocalLayoutToggleSingleProminent()
@@ -3178,9 +3463,11 @@ namespace PepperDash.Essentials.Plugins
 			// value != _meetingInfo is always true for a freshly constructed object.
 			var cur = _meetingInfo;
 			var isSharing = _sdkSharingState > 0;
+			var shareStatus = isSharing ? "Sharing" : "None";
 			if (cur != null
 				&& cur.Id == _currentMeetingId
 				&& cur.Name == _currentMeetingName
+				&& cur.ShareStatus == shareStatus
 				&& cur.IsHost == _sdkIsHost
 				&& cur.IsSharingMeeting == isSharing
 				&& cur.IsLocked == _sdkMeetingLocked
@@ -3195,7 +3482,7 @@ namespace PepperDash.Essentials.Plugins
 				_currentMeetingName,
 				string.Empty, // host name: SDK gap — ZrcSdk does not surface a host-name event
 				string.Empty,
-				"None",
+				shareStatus,
 				_sdkIsHost,
 				isSharing,
 				false,

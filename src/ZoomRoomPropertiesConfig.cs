@@ -18,6 +18,15 @@ namespace PepperDash.Essentials.Plugins
         [JsonProperty("supportsCameraOff")]
         public bool SupportsCameraOff { get; set; }
 
+        /// <summary>
+        /// Whether to offer "Multi-Speaker" as a selectable layout. The ZRC SDK exposes no command to
+        /// enter Multi-Speaker (it maps to ScreenLayoutSourceTypeNone/-1, which SetScreenLayout ignores),
+        /// so the button is a no-op if pressed. Defaults to false (hidden); Multi-Speaker is still
+        /// reported as the current layout when the Zoom controller selects it.
+        /// </summary>
+        [JsonProperty("showMultiSpeakerLayout")]
+        public bool ShowMultiSpeakerLayout { get; set; }
+
         //if true, the layouts will be set automatically when sharing starts/ends or a call is joined
         [JsonProperty("autoDefaultLayouts")]
         public bool AutoDefaultLayouts { get; set; }
@@ -34,6 +43,15 @@ namespace PepperDash.Essentials.Plugins
 
         [JsonProperty("minutesBeforeMeetingStart")]
         public int MinutesBeforeMeetingStart { get; set; }
+
+        /// <summary>
+        /// How long (ms) a ringing meeting invite is allowed to sit unanswered before it's dropped
+        /// from ActiveCalls. Fallback safety net for invites that are silently ignored -- the SDK
+        /// otherwise only notifies via MeetingInviteTreated (answered/declined/expired elsewhere).
+        /// Defaults to 45000 (45s) when unset/0.
+        /// </summary>
+        [JsonProperty("meetingInviteTimeoutMs")]
+        public int MeetingInviteTimeoutMs { get; set; }
 
         [JsonProperty("activationCode")]
         public string ActivationCode { get; set; }

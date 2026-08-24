@@ -20,6 +20,20 @@ namespace PepperDash.Essentials.Plugins
         int GetConnectionState();
 
         /// <summary>
+        /// Raised with the watchdog's assessment of whether the room is actually reachable (true=online).
+        /// Distinct from <see cref="ConnectionStateChanged"/>: it fires on silent/half-open drops the SDK
+        /// never reports, so devcomm can be corrected and auto-repair triggered.
+        /// </summary>
+        event EventHandler<bool> HealthStateChanged;
+
+        /// <summary>
+        /// Actively probes the link (real SDK round-trip). If the room is unreachable it marks the
+        /// controller offline and starts auto-repair; if a prior offline was a false alarm it clears it.
+        /// Safe to call periodically (comms-monitor poll) or on demand (after command failures).
+        /// </summary>
+        void RunHealthCheck(string reason);
+
+        /// <summary>
         /// Synchronously queries the current meeting status. Unlike <see cref="MeetingStatusChanged"/>,
         /// this does not require a status change to have occurred - call it once connected to pick up a
         /// meeting that was already in progress before the SDK callbacks were registered.
@@ -83,6 +97,10 @@ namespace PepperDash.Essentials.Plugins
         // ── Video ─────────────────────────────────────────────────────────────
 
         bool SetVideoState(bool start);
+
+        /// <summary>Hides or shows the room's own self video locally (does not stop video to the far end).</summary>
+        bool SetMyVideoHidden(bool hidden);
+
         bool MuteUserVideo(int userId, bool mute);
         bool PinUserOnScreen(int userId, int screenIndex = 0);
         bool UnpinUserFromScreen(int userId, int screenIndex = 0);
@@ -116,6 +134,9 @@ namespace PepperDash.Essentials.Plugins
 
         int SetScreenLayout(int screen, int layoutSourceType);
         int SetVideoOrder(int videoOrderType);
+
+        /// <summary>Sets the dynamic-layout sub-option within Dynamic View (DynamicLayoutType: SpeakersOnBottom=0/Middle=1/Top=2). On single-screen rooms this distinguishes Dynamic Gallery from Multi-Speaker.</summary>
+        int SetDynamicLayoutOption(int layout);
 
         /// <summary>Sets the meeting video layout style (VideoLayoutStyle: Gallery=1, Speaker=2, Thumbnail=3, ContentOnly=4, DynamicLayout=6). Distinct from SetVideoOrder, which only reorders tiles.</summary>
         int UpdateVideoLayoutStyle(int videoLayoutStyle);
@@ -226,6 +247,8 @@ namespace PepperDash.Essentials.Plugins
         event EventHandler<SdkEventArgs> ExitMeeting;
         event EventHandler<SdkEventArgs> MeetingNeedsPassword;
         event EventHandler<MeetingInviteEventArgs> MeetingInvite;
+        /// <summary>Fires when a pending meeting invite is resolved -- answered here, answered elsewhere, declined, or expired/cancelled by the caller.</summary>
+        event EventHandler<MeetingInviteTreatedEventArgs> MeetingInviteTreated;
         event EventHandler<SdkEventArgs> MeetingLockStatusChanged;
         event EventHandler<SdkEventArgs> AudioMuteStatusChanged;
         event EventHandler<SdkEventArgs> RecordingStatusChanged;
@@ -242,6 +265,9 @@ namespace PepperDash.Essentials.Plugins
         event EventHandler<AirPlayStatusEventArgs> AirPlayStatusChanged;
         event EventHandler<VideoPageStatusEventArgs> VideoPageStatusChanged;
         event EventHandler<ScreenLayoutStatusEventArgs> ScreenLayoutStatusChanged;
+        event EventHandler<SdkEventArgs> DynamicLayoutOptionChanged;
+        event EventHandler<SdkEventArgs> LayoutDiagnostic;
+        event EventHandler<VideoThumbInfoEventArgs> VideoThumbInfoChanged;
         event EventHandler<SIPCall> SipCallStatusChanged;
         event EventHandler<SdkEventArgs> ZrcsEnabledChanged;
         event EventHandler<ContactListEventArgs> ContactListChanged;

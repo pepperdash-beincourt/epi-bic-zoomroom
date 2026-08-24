@@ -24,9 +24,19 @@ namespace PepperDash.Essentials.Plugins
         private string _pendingPassword;
         private CTimer _reconnectTimer;
         private int _reconnectAttempt;
-        private const int MaxReconnectAttempts = 10;
         private bool _isConnected;
         private static readonly int[] ReconnectDelaysMs = { 5000, 10000, 20000, 30000, 60000 };
+
+        // Health watchdog: the SDK's connection flag/events can go stale on a silent/half-open drop,
+        // but real command results stay truthful. Count consecutive command failures (while we still
+        // believe we're connected) and probe the link before declaring the room offline.
+        private const int CommandFailureStrikeThreshold = 2;
+        private int _consecutiveCommandFailures;
+        private bool _everConnected;
+        private bool _healthCheckRunning;
+        private readonly object _healthLock = new object();
+
+        public event EventHandler<bool> HealthStateChanged;
 
         public string Key { get; }
 
@@ -217,15 +227,20 @@ namespace PepperDash.Essentials.Plugins
                 if (state == ConnectionState.Disconnected)
                 {
                     _isConnected = false;
+                    _consecutiveCommandFailures = 0;
                     // Disconnect mid-join: ExitMeeting won't fire, so clear any cached password here.
                     _pendingPassword = null;
+                    SafeRaise(() => HealthStateChanged?.Invoke(this, false));
                     ScheduleReconnect();
                 }
                 else if (state == ConnectionState.Connected || state == ConnectionState.Established)
                 {
                     _isConnected = true;
+                    _everConnected = true;
+                    _consecutiveCommandFailures = 0;
                     // Successfully reconnected — cancel any pending retry and reset the counter.
                     CancelReconnect();
+                    SafeRaise(() => HealthStateChanged?.Invoke(this, true));
                 }
                 SafeRaise(() => ConnectionStateChanged?.Invoke(this, e));
             };
@@ -260,6 +275,7 @@ namespace PepperDash.Essentials.Plugins
                 }
             };
             _sdk.MeetingInvite           += (s, e) => SafeRaise(() => MeetingInvite?.Invoke(this, e));
+            _sdk.MeetingInviteTreated    += (s, e) => SafeRaise(() => MeetingInviteTreated?.Invoke(this, e));
             _sdk.MeetingLockStatus       += (s, e) => SafeRaise(() => MeetingLockStatusChanged?.Invoke(this, e));
             _sdk.AudioStatus             += (s, e) => SafeRaise(() => AudioMuteStatusChanged?.Invoke(this, e));
             _sdk.RecordingStatus         += (s, e) => SafeRaise(() => RecordingStatusChanged?.Invoke(this, e));
@@ -276,6 +292,9 @@ namespace PepperDash.Essentials.Plugins
             _sdk.AirPlayStatusChanged    += (s, e) => SafeRaise(() => AirPlayStatusChanged?.Invoke(this, e));
             _sdk.VideoPageStatusChanged  += (s, e) => SafeRaise(() => VideoPageStatusChanged?.Invoke(this, e));
             _sdk.ScreenLayoutStatusChanged += (s, e) => SafeRaise(() => ScreenLayoutStatusChanged?.Invoke(this, e));
+            _sdk.DynamicLayoutOptionChanged += (s, e) => SafeRaise(() => DynamicLayoutOptionChanged?.Invoke(this, e));
+            _sdk.LayoutDiagnostic += (s, e) => SafeRaise(() => LayoutDiagnostic?.Invoke(this, e));
+            _sdk.VideoThumbInfoChanged   += (s, e) => SafeRaise(() => VideoThumbInfoChanged?.Invoke(this, e));
             _sdk.SIPCallStatus           += (s, e) => SafeRaise(() => SipCallStatusChanged?.Invoke(this, e));
             _sdk.ControlSystemEnabled    += (s, e) => SafeRaise(() => ZrcsEnabledChanged?.Invoke(this, e));
             _sdk.ContactListChanged      += (s, e) => SafeRaise(() => ContactListChanged?.Invoke(this, e));
@@ -377,14 +396,14 @@ namespace PepperDash.Essentials.Plugins
         // means the C# call didn't throw, not that the SDK acted. Successes log at Debug.
         private int Rc(string op, int code)
         {
-            if (code != 0) this.LogWarning("SDK call {Op} returned error code {Code}", op, code);
-            else this.LogDebug("SDK call {Op} ok", op);
+            if (code != 0) { this.LogWarning("SDK call {Op} returned error code {Code}", op, code); NoteCommandResult(false); }
+            else { this.LogDebug("SDK call {Op} ok", op); NoteCommandResult(true); }
             return code;
         }
         private bool Rc(string op, bool ok)
         {
-            if (!ok) this.LogWarning("SDK call {Op} returned failure", op);
-            else this.LogDebug("SDK call {Op} ok", op);
+            if (!ok) { this.LogWarning("SDK call {Op} returned failure", op); NoteCommandResult(false); }
+            else { this.LogDebug("SDK call {Op} ok", op); NoteCommandResult(true); }
             return ok;
         }
 
@@ -412,6 +431,7 @@ namespace PepperDash.Essentials.Plugins
         // ── Video ─────────────────────────────────────────────────────────────
 
         public bool SetVideoState(bool start)                  => Guard(nameof(SetVideoState)) && Rc(nameof(SetVideoState), _sdk.SetVideoState(start));
+        public bool SetMyVideoHidden(bool hidden)              => Guard(nameof(SetMyVideoHidden)) && Rc(nameof(SetMyVideoHidden), _sdk.SetMyVideoHidden(hidden));
         public bool MuteUserVideo(int userId, bool mute)       => Guard(nameof(MuteUserVideo)) && Rc(nameof(MuteUserVideo), _sdk.MuteUserVideo(userId, mute));
         public bool PinUserOnScreen(int userId, int screenIndex = 0)    => Guard(nameof(PinUserOnScreen)) && Rc(nameof(PinUserOnScreen), _sdk.PinUserOnScreen(userId, screenIndex));
         public bool UnpinUserFromScreen(int userId, int screenIndex = 0) => Guard(nameof(UnpinUserFromScreen)) && Rc(nameof(UnpinUserFromScreen), _sdk.UnpinUserFromScreen(userId, screenIndex));
@@ -429,6 +449,7 @@ namespace PepperDash.Essentials.Plugins
 
         public int SetScreenLayout(int screen, int layoutSourceType) => Guard(nameof(SetScreenLayout)) ? Rc(nameof(SetScreenLayout), _sdk.SetScreenLayout(screen, layoutSourceType)) : -1;
         public int SetVideoOrder(int videoOrderType)                 => Guard(nameof(SetVideoOrder)) ? Rc(nameof(SetVideoOrder), _sdk.SetVideoOrder(videoOrderType)) : -1;
+        public int SetDynamicLayoutOption(int layout)                => Guard(nameof(SetDynamicLayoutOption)) ? Rc(nameof(SetDynamicLayoutOption), _sdk.SetDynamicLayoutOption(layout)) : -1;
         public int UpdateVideoLayoutStyle(int videoLayoutStyle)      => Guard(nameof(UpdateVideoLayoutStyle)) ? Rc(nameof(UpdateVideoLayoutStyle), _sdk.UpdateVideoLayoutStyle(videoLayoutStyle)) : -1;
         public int ControlVideoPosition(int position, int size)      => Guard(nameof(ControlVideoPosition)) ? Rc(nameof(ControlVideoPosition), _sdk.ControlVideoPosition(position, size)) : -1;
         public int TurnVideoPage(bool forward, int pageVideoType)    => Guard(nameof(TurnVideoPage)) ? Rc(nameof(TurnVideoPage), _sdk.TurnVideoPage(forward, pageVideoType)) : -1;
@@ -497,6 +518,7 @@ namespace PepperDash.Essentials.Plugins
         public event EventHandler<SdkEventArgs> ExitMeeting;
         public event EventHandler<SdkEventArgs> MeetingNeedsPassword;
         public event EventHandler<MeetingInviteEventArgs> MeetingInvite;
+        public event EventHandler<MeetingInviteTreatedEventArgs> MeetingInviteTreated;
         public event EventHandler<SdkEventArgs> MeetingLockStatusChanged;
         public event EventHandler<SdkEventArgs> AudioMuteStatusChanged;
         public event EventHandler<SdkEventArgs> RecordingStatusChanged;
@@ -513,6 +535,9 @@ namespace PepperDash.Essentials.Plugins
         public event EventHandler<AirPlayStatusEventArgs> AirPlayStatusChanged;
         public event EventHandler<VideoPageStatusEventArgs> VideoPageStatusChanged;
         public event EventHandler<ScreenLayoutStatusEventArgs> ScreenLayoutStatusChanged;
+        public event EventHandler<SdkEventArgs> DynamicLayoutOptionChanged;
+        public event EventHandler<SdkEventArgs> LayoutDiagnostic;
+        public event EventHandler<VideoThumbInfoEventArgs> VideoThumbInfoChanged;
         public event EventHandler<SIPCall> SipCallStatusChanged;
         public event EventHandler<SdkEventArgs> ZrcsEnabledChanged;
         public event EventHandler<ContactListEventArgs> ContactListChanged;
@@ -540,22 +565,27 @@ namespace PepperDash.Essentials.Plugins
         private void ScheduleReconnect()
         {
             if (_disposed) return;
+            // A single self-perpetuating loop; extra triggers (SDK event, poll, command failures) no-op.
+            if (_reconnectTimer != null) return;
+            ScheduleNextReconnect();
+        }
+
+        private void ScheduleNextReconnect()
+        {
+            if (_disposed) return;
             if (!_sdk.CanRetryToPairLastRoom())
             {
                 this.LogWarning("Disconnected and no stored pairing credentials — cannot auto-reconnect.");
+                _reconnectTimer?.Dispose();
+                _reconnectTimer = null;
                 return;
             }
 
             _reconnectAttempt++;
-            if (_reconnectAttempt > MaxReconnectAttempts)
-            {
-                this.LogWarning("Auto-reconnect exceeded {Max} attempts — giving up. Use 'repairZoomRoom' to retry.", MaxReconnectAttempts);
-                return;
-            }
-
+            // Escalating backoff for the first few tries, then hold at the max delay indefinitely.
+            // Never give up: an unattended room must self-heal whenever it becomes reachable again.
             var delayMs = ReconnectDelaysMs[Math.Min(_reconnectAttempt - 1, ReconnectDelaysMs.Length - 1)];
-            this.LogInformation("Disconnected — scheduling reconnect attempt {Attempt}/{Max} in {Delay}ms",
-                _reconnectAttempt, MaxReconnectAttempts, delayMs);
+            this.LogInformation("Disconnected — reconnect attempt {Attempt} in {Delay}ms", _reconnectAttempt, delayMs);
 
             _reconnectTimer?.Dispose();
             _reconnectTimer = new CTimer(_ =>
@@ -563,6 +593,9 @@ namespace PepperDash.Essentials.Plugins
                 if (_disposed) return;
                 this.LogInformation("Auto-reconnect attempt {Attempt}: calling RetryToPairRoom()", _reconnectAttempt);
                 _sdk.RetryToPairRoom();
+                // A successful pair fires ConnectionStateChanged(Connected) -> CancelReconnect() stops
+                // this loop. If it didn't (silent failure), keep retrying at the capped delay.
+                if (!_disposed && !_isConnected) ScheduleNextReconnect();
             }, null, delayMs);
         }
 
@@ -571,6 +604,83 @@ namespace PepperDash.Essentials.Plugins
             _reconnectAttempt = 0;
             _reconnectTimer?.Dispose();
             _reconnectTimer = null;
+        }
+
+        // ── Health watchdog ─────────────────────────────────────────────────────
+
+        // Central choke point for every SDK command result (from the Rc helpers). While we believe
+        // we're connected, a run of failures is the signature of a silent/half-open drop, so probe.
+        private void NoteCommandResult(bool success)
+        {
+            if (_disposed) return;
+            if (success) { _consecutiveCommandFailures = 0; return; }
+
+            // Guard() blocks commands when we already know we're offline, so a failure reaching here
+            // means the SDK still reports connected — exactly the stale-state case we want to catch.
+            if (!_isConnected) return;
+
+            _consecutiveCommandFailures++;
+            if (_consecutiveCommandFailures >= CommandFailureStrikeThreshold)
+            {
+                this.LogWarning("{Count} consecutive SDK command failures while marked connected — running health check.", _consecutiveCommandFailures);
+                RunHealthCheck("consecutive command failures");
+            }
+        }
+
+        public void RunHealthCheck(string reason)
+        {
+            // Only guards an established pairing; before the first connect the pairing flow handles it.
+            if (_disposed || !_everConnected) return;
+
+            lock (_healthLock)
+            {
+                if (_healthCheckRunning) return;
+                _healthCheckRunning = true;
+            }
+
+            try
+            {
+                // Real round-trip probe: returns null when the link is actually dead, even if the SDK's
+                // connection flag is stale.
+                var alive = _sdk.GetMeetingStatus().HasValue;
+                if (alive)
+                {
+                    _consecutiveCommandFailures = 0;
+                    if (!_isConnected)
+                    {
+                        // Link recovered without an SDK event — restore online and let the reconnect
+                        // loop's RetryToPairRoom fire a real Connected event for full re-seed.
+                        this.LogInformation("Health probe succeeded while offline ({Reason}) — marking connected.", reason);
+                        _isConnected = true;
+                        SafeRaise(() => HealthStateChanged?.Invoke(this, true));
+                    }
+                    return;
+                }
+
+                this.LogWarning("Health probe failed ({Reason}) — link is down.", reason);
+                DeclareOffline(reason);
+            }
+            catch (Exception ex)
+            {
+                this.LogError(ex, "Exception during health check ({Reason}): {Message}", reason, ex.Message);
+                DeclareOffline(reason);
+            }
+            finally
+            {
+                lock (_healthLock) { _healthCheckRunning = false; }
+            }
+        }
+
+        private void DeclareOffline(string reason)
+        {
+            _consecutiveCommandFailures = 0;
+            if (_isConnected)
+            {
+                _isConnected = false;
+                this.LogWarning("Marking Zoom Room offline ({Reason}); starting auto-repair.", reason);
+                SafeRaise(() => HealthStateChanged?.Invoke(this, false));
+            }
+            ScheduleReconnect();
         }
     }
 }
