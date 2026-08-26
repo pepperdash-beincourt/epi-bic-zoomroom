@@ -84,6 +84,11 @@ namespace PepperDash.Essentials.AppServer.Messengers
 
             _codec.VideoUnmuteRequested += (s, e) =>
                 Task.Run(() => PostEventMessage(new ZoomRoomEventMessage { EventType = "videoUnmuteRequested" }));
+
+            // IHasMeetingInfo's MeetingInfo has no co-host field (fixed shape from PepperDashEssentials),
+            // so this rides its own event/status push instead - see ZoomRoom.CoHostChanged.
+            _codec.CoHostChanged += (s, isCoHost) =>
+                Task.Run(() => PostStatusMessage(new ZoomRoomStateMessage { IsCoHost = isCoHost }));
         }
 
         private void SendFullStatus(string clientId = null)
@@ -97,7 +102,8 @@ namespace PepperDash.Essentials.AppServer.Messengers
                     var status = new ZoomRoomStateMessage
                     {
                         CameraIsMuted = _codec.CameraIsMutedFeedback.BoolValue,
-                        CurrentDirectory = _codec.DirectoryRoot
+                        CurrentDirectory = _codec.DirectoryRoot,
+                        IsCoHost = _codec.IsCoHost
                     };
 
                     PostStatusMessage(status, clientId);
@@ -120,6 +126,14 @@ namespace PepperDash.Essentials.AppServer.Messengers
 
         [JsonProperty("currentDirectory", NullValueHandling = NullValueHandling.Ignore)]
         public CodecDirectory CurrentDirectory { get; set; }
+
+        /// <summary>
+        /// Whether this room is currently a co-host of the meeting. Not part of IHasMeetingInfo's
+        /// MeetingInfo (a fixed upstream shape) - the React app reads it as a raw device-state field
+        /// alongside meetingInfo.isHost, the same pattern already used for cameraSelfView.
+        /// </summary>
+        [JsonProperty("isCoHost", NullValueHandling = NullValueHandling.Ignore)]
+        public bool? IsCoHost { get; set; }
     }
 
     /// <summary>

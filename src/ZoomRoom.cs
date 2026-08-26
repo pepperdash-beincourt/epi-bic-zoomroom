@@ -48,6 +48,7 @@ namespace PepperDash.Essentials.Plugins
 		private bool _sdkCanRecord; // room "can start recording" — from MeetingRecordingInfo.canIRecord
 		private bool _sdkMeetingLocked;
 		private bool _sdkIsHost;
+		private bool _sdkIsCoHost;
 		private int _sdkSharingState; // 0 = not sharing
 									  // Typed reference to avoid downcasting CommunicationMonitor at every call site (#26)
 		private SdkConnectionMonitor _sdkMonitor;
@@ -941,6 +942,7 @@ namespace PepperDash.Essentials.Plugins
 			_currentMeetingNumber = string.Empty;
 			_currentMeetingName = string.Empty;
 			_sdkIsHost = false;
+			_sdkIsCoHost = false;
 
 			_sdkMeetingLocked = false;
 			_sdkIsRecording = false;
@@ -1120,6 +1122,7 @@ namespace PepperDash.Essentials.Plugins
 
 			Participants.OnParticipantsChanged();
 			RefreshHostFromParticipants();
+			RefreshCoHostFromParticipants();
 			UpdateFarEndCameras();
 		}
 
@@ -1145,6 +1148,34 @@ namespace PepperDash.Essentials.Plugins
 			_sdkIsHost = isHost;
 			this.LogDebug("Host state from roster: isHost={IsHost}", isHost);
 			UpdateMeetingInfo();
+		}
+
+		/// <summary>
+		/// Fires when this room's co-host status changes. Unlike host status, IHasMeetingInfo's
+		/// MeetingInfo class has no co-host field (fixed shape from PepperDashEssentials), so this is
+		/// surfaced as its own event/property rather than through MeetingInfoChanged - see
+		/// ZoomRoomMessenger for how it reaches Mobile Control.
+		/// </summary>
+		public event EventHandler<bool> CoHostChanged;
+
+		public bool IsCoHost => _sdkIsCoHost;
+
+		/// <summary>
+		/// Derives this room's co-host status from the roster (the <c>IsMyself</c> participant's
+		/// <c>IsCohost</c> flag), the same way <see cref="RefreshHostFromParticipants"/> derives host
+		/// status - the SDK re-sends a participant via UserJoined on a role change (see
+		/// LogIncomingParticipantRoles), which is what this relies on to observe a co-host promotion.
+		/// </summary>
+		private void RefreshCoHostFromParticipants()
+		{
+			bool isCoHost;
+			lock (_participantLock)
+				isCoHost = Participants.CurrentParticipants.Any(p => p.IsMyself && p.IsCohost);
+
+			if (isCoHost == _sdkIsCoHost) return;
+			_sdkIsCoHost = isCoHost;
+			this.LogDebug("Co-host state from roster: isCoHost={IsCoHost}", isCoHost);
+			CoHostChanged?.Invoke(this, isCoHost);
 		}
 
 		// Diagnostic (Debug): logs the raw role flags the SDK delivers for each participant in a
@@ -2035,16 +2066,35 @@ namespace PepperDash.Essentials.Plugins
 			_controller.EndMeeting();
 		}
 
+		/// <summary>
+		/// Mobile Control's generic "end this call" action (from IHasCodecCallControls) for a host or
+		/// co-host must actually end the meeting for everyone, not just remove this Zoom Room from it -
+		/// this previously always called LeaveMeeting() regardless of role, so a host pressing what the
+		/// UI labeled "End Call" only ever left the meeting (#confirmed via live testing).
+		/// </summary>
 		public override void EndCall(CodecActiveCallItem call)
 		{
-			_meetingPasswordRequired = false;
-			_controller.LeaveMeeting();
+			if (_sdkIsHost || _sdkIsCoHost)
+			{
+				EndMeetingForAll();
+			}
+			else
+			{
+				LeaveMeeting();
+			}
 		}
 
+		/// <summary>Same host/co-host distinction as <see cref="EndCall"/> - see its remarks.</summary>
 		public override void EndAllCalls()
 		{
-			_meetingPasswordRequired = false;
-			_controller.LeaveMeeting();
+			if (_sdkIsHost || _sdkIsCoHost)
+			{
+				EndMeetingForAll();
+			}
+			else
+			{
+				LeaveMeeting();
+			}
 		}
 
 		public override void SendDtmf(string s)
