@@ -2052,8 +2052,16 @@ namespace PepperDash.Essentials.Plugins
 
 		public void LeaveMeeting()
 		{
+			this.LogInformation("LeaveMeeting: calling ZrcSdk LeaveMeeting");
 			_meetingPasswordRequired = false;
-			_controller.LeaveMeeting();
+			try
+			{
+				_controller.LeaveMeeting();
+			}
+			catch (Exception ex)
+			{
+				this.LogException(ex, "LeaveMeeting: ZrcSdk LeaveMeeting threw");
+			}
 		}
 
 		/// <summary>
@@ -2062,8 +2070,16 @@ namespace PepperDash.Essentials.Plugins
 		/// </summary>
 		public void EndMeetingForAll()
 		{
+			this.LogInformation("EndMeetingForAll: calling ZrcSdk EndMeeting (isHost={IsHost}, isCoHost={IsCoHost})", _sdkIsHost, _sdkIsCoHost);
 			_meetingPasswordRequired = false;
-			_controller.EndMeeting();
+			try
+			{
+				_controller.EndMeeting();
+			}
+			catch (Exception ex)
+			{
+				this.LogException(ex, "EndMeetingForAll: ZrcSdk EndMeeting threw");
+			}
 		}
 
 		/// <summary>
@@ -2074,6 +2090,7 @@ namespace PepperDash.Essentials.Plugins
 		/// </summary>
 		public override void EndCall(CodecActiveCallItem call)
 		{
+			this.LogInformation("EndCall: isHost={IsHost}, isCoHost={IsCoHost}", _sdkIsHost, _sdkIsCoHost);
 			if (_sdkIsHost || _sdkIsCoHost)
 			{
 				EndMeetingForAll();
@@ -2087,6 +2104,7 @@ namespace PepperDash.Essentials.Plugins
 		/// <summary>Same host/co-host distinction as <see cref="EndCall"/> - see its remarks.</summary>
 		public override void EndAllCalls()
 		{
+			this.LogInformation("EndAllCalls: isHost={IsHost}, isCoHost={IsCoHost}", _sdkIsHost, _sdkIsCoHost);
 			if (_sdkIsHost || _sdkIsCoHost)
 			{
 				EndMeetingForAll();
