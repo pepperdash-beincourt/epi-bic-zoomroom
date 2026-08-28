@@ -1889,6 +1889,10 @@ namespace PepperDash.Essentials.Plugins
 		public override void Dial(Meeting meeting)
 		{
 			this.LogInformation("Dialing meeting.Id: {MeetingId} Title: {MeetingTitle}", meeting.Id, meeting.Title);
+			// Capture the scheduled meeting's title now so MeetingInfo.Name (see ApplyMeetingStatus)
+			// reflects it once the meeting connects - _currentMeetingName was otherwise never set by
+			// anything, so MeetingInfo.Name was always empty regardless of how the meeting was joined.
+			_currentMeetingName = meeting.Title ?? string.Empty;
 			_controller.JoinMeeting(meeting.Id);
 		}
 
