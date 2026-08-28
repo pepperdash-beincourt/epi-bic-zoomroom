@@ -50,6 +50,24 @@ namespace PepperDash.Essentials.Plugins
 		private bool _sdkIsHost;
 		private bool _sdkIsCoHost;
 		private int _sdkSharingState; // 0 = not sharing
+
+		// True once the participant roster has confirmed our own entry (IsMyself) for the current
+		// join attempt. The ZRC SDK reports MeetingStatus.InMeeting the instant the room joins the
+		// Zoom session infrastructure - which happens BEFORE a host admits it from a waiting room -
+		// and can then cycle Exit/ConnectingToMeeting/Exit for several more seconds before real
+		// admission (confirmed via live testing: zero participant data logged for 10+ seconds after
+		// the first InMeeting, then an Exit/reconnect cycle, then the real InMeeting with roster data
+		// following ~3s later). The roster is the one reliable "actually admitted" signal, so
+		// ApplyMeetingStatus only marks a call Connected once this is true - see
+		// BeginPendingRosterAdmission/ConfirmRosterAdmission/RefreshRosterAdmissionFromParticipants.
+		private bool _hasConfirmedRosterAdmission;
+		// True from the moment a join/start is issued until roster admission is confirmed or the
+		// timeout below fires. While true, ExitMeeting/NotInMeeting notifications are treated as
+		// transient noise from the pre-admission dance rather than a real disconnect, so the UI
+		// doesn't bounce back to idle mid-join.
+		private bool _isPendingRosterAdmission;
+		private CTimer _pendingRosterAdmissionTimeoutTimer;
+		private const int PendingRosterAdmissionTimeoutMs = 60000;
 									  // Typed reference to avoid downcasting CommunicationMonitor at every call site (#26)
 		private SdkConnectionMonitor _sdkMonitor;
 		// (best-effort) to drive ToggleParticipantPinState. Keyed by userId -> screenIndex.
@@ -853,6 +871,12 @@ namespace PepperDash.Essentials.Plugins
 			{
 				case MeetingStatus.InMeeting:
 					{
+						// See _hasConfirmedRosterAdmission: InMeeting alone doesn't mean the room has
+						// actually been admitted from a waiting room, so don't show Connected until the
+						// roster confirms it - until then this is functionally identical to
+						// ConnectingToMeeting.
+						var targetStatus = _hasConfirmedRosterAdmission ? eCodecCallStatus.Connected : eCodecCallStatus.Connecting;
+
 						if (ActiveCalls.Count == 0)
 						{
 							var call = new CodecActiveCallItem
@@ -860,7 +884,7 @@ namespace PepperDash.Essentials.Plugins
 								Name = _currentMeetingName,
 								Number = _currentMeetingNumber,
 								Id = _currentMeetingId,
-								Status = eCodecCallStatus.Connected,
+								Status = targetStatus,
 								Type = eCodecCallType.Video,
 							};
 							ActiveCalls.Add(call);
@@ -871,7 +895,7 @@ namespace PepperDash.Essentials.Plugins
 							var existing = ActiveCalls.FirstOrDefault();
 							if (existing != null)
 							{
-								existing.Status = eCodecCallStatus.Connected;
+								existing.Status = targetStatus;
 								OnCallStatusChange(existing);
 							}
 						}
@@ -898,9 +922,79 @@ namespace PepperDash.Essentials.Plugins
 				case MeetingStatus.NotInMeeting:
 				case MeetingStatus.LoggedOut:
 					{
+						if (_isPendingRosterAdmission)
+						{
+							this.LogInformation("MeetingStatusChanged: {0} while still pending roster admission - ignoring as transient noise from the pre-admission dance", status);
+							break;
+						}
 						ResetMeetingState();
 						break;
 					}
+			}
+		}
+
+		/// <summary>
+		/// Marks the start of a join/start attempt: clears any prior roster-admission confirmation and
+		/// arms the pending-admission window (see _isPendingRosterAdmission) so ExitMeeting/NotInMeeting
+		/// noise during the pre-admission dance doesn't bounce the UI back to idle, with a timeout
+		/// safety net in case admission never actually arrives (rejected, meeting ended, etc.).
+		/// </summary>
+		private void BeginPendingRosterAdmission()
+		{
+			_hasConfirmedRosterAdmission = false;
+			_isPendingRosterAdmission = true;
+
+			_pendingRosterAdmissionTimeoutTimer?.Stop();
+			_pendingRosterAdmissionTimeoutTimer = new CTimer(_ =>
+			{
+				this.LogWarning("Pending roster admission timed out after {0}ms with no roster confirmation - treating the join as failed", PendingRosterAdmissionTimeoutMs);
+				_isPendingRosterAdmission = false;
+				ResetMeetingState();
+			}, PendingRosterAdmissionTimeoutMs);
+		}
+
+		/// <summary>
+		/// Confirms genuine meeting admission and promotes any call already sitting in ActiveCalls as
+		/// Connecting (from InMeeting or ConnectingToMeeting arriving before the roster did) to
+		/// Connected. Called once the roster contains our own entry - see
+		/// RefreshRosterAdmissionFromParticipants.
+		/// </summary>
+		private void ConfirmRosterAdmission()
+		{
+			if (_hasConfirmedRosterAdmission) return;
+
+			this.LogInformation("Roster admission confirmed - marking the call Connected");
+			_hasConfirmedRosterAdmission = true;
+			_isPendingRosterAdmission = false;
+			_pendingRosterAdmissionTimeoutTimer?.Stop();
+			_pendingRosterAdmissionTimeoutTimer = null;
+
+			var existing = ActiveCalls.FirstOrDefault();
+			if (existing != null && existing.Status != eCodecCallStatus.Connected)
+			{
+				existing.Status = eCodecCallStatus.Connected;
+				OnCallStatusChange(existing);
+			}
+		}
+
+		/// <summary>
+		/// Checks whether the roster now contains our own entry (IsMyself) and, if so, confirms real
+		/// meeting admission - see _hasConfirmedRosterAdmission for why this, not MeetingStatus alone,
+		/// is what actually gates showing the call as Connected. Called alongside
+		/// RefreshHostFromParticipants/RefreshCoHostFromParticipants from the participant-changed
+		/// handler.
+		/// </summary>
+		private void RefreshRosterAdmissionFromParticipants()
+		{
+			if (_hasConfirmedRosterAdmission) return;
+
+			bool isMyselfPresent;
+			lock (_participantLock)
+				isMyselfPresent = Participants.CurrentParticipants.Any(p => p.IsMyself);
+
+			if (isMyselfPresent)
+			{
+				ConfirmRosterAdmission();
 			}
 		}
 
@@ -929,6 +1023,18 @@ namespace PepperDash.Essentials.Plugins
 		private void OnControllerExitMeeting(object sender, SdkEventArgs e)
 		{
 			this.LogInformation("ExitMeeting reason={Reason} ({Code})", (ExitMeetingReason)e.ErrorCode, e.ErrorCode);
+
+			if (_isPendingRosterAdmission)
+			{
+				// The SDK cycles Exit/ConnectingToMeeting/Exit while a join sits in a waiting room
+				// pending host approval (confirmed via live testing) - none of that is a real
+				// disconnect. Ignore it and let a later ConnectingToMeeting/InMeeting/roster
+				// confirmation (or the pending-admission timeout) carry the join forward instead of
+				// bouncing the UI back to idle.
+				this.LogInformation("ExitMeeting while still pending roster admission - ignoring as transient noise from the pre-admission dance");
+				return;
+			}
+
 			ResetMeetingState();
 		}
 
@@ -938,6 +1044,11 @@ namespace PepperDash.Essentials.Plugins
 		/// </summary>
 		private void ResetMeetingState()
 		{
+			_hasConfirmedRosterAdmission = false;
+			_isPendingRosterAdmission = false;
+			_pendingRosterAdmissionTimeoutTimer?.Stop();
+			_pendingRosterAdmissionTimeoutTimer = null;
+
 			_currentMeetingId = string.Empty;
 			_currentMeetingNumber = string.Empty;
 			_currentMeetingName = string.Empty;
@@ -1123,6 +1234,7 @@ namespace PepperDash.Essentials.Plugins
 			Participants.OnParticipantsChanged();
 			RefreshHostFromParticipants();
 			RefreshCoHostFromParticipants();
+			RefreshRosterAdmissionFromParticipants();
 			UpdateFarEndCameras();
 		}
 
@@ -1893,12 +2005,14 @@ namespace PepperDash.Essentials.Plugins
 			// reflects it once the meeting connects - _currentMeetingName was otherwise never set by
 			// anything, so MeetingInfo.Name was always empty regardless of how the meeting was joined.
 			_currentMeetingName = meeting.Title ?? string.Empty;
+			BeginPendingRosterAdmission();
 			_controller.JoinMeeting(meeting.Id);
 		}
 
 		public override void Dial(string number)
 		{
 			this.LogDebug("Dialing number: {Number}", number);
+			BeginPendingRosterAdmission();
 			_controller.JoinMeeting(number);
 		}
 
@@ -1908,6 +2022,7 @@ namespace PepperDash.Essentials.Plugins
 		public override void Dial(string number, string password)
 		{
 			this.LogDebug("Dialing meeting number: {Number} with password: {Password}", number, password);
+			BeginPendingRosterAdmission();
 			_controller.JoinMeetingWithPassword(number, password);
 		}
 
@@ -2051,6 +2166,7 @@ namespace PepperDash.Essentials.Plugins
 		/// <param name="duration">duration of meeting</param>
 		public void StartMeeting(uint duration)
 		{
+			BeginPendingRosterAdmission();
 			_controller.StartInstantMeeting();
 		}
 
