@@ -67,7 +67,9 @@ namespace PepperDash.Essentials.Plugins
 		// doesn't bounce back to idle mid-join.
 		private bool _isPendingRosterAdmission;
 		private CTimer _pendingRosterAdmissionTimeoutTimer;
+		private CTimer _connectTimeSeedAdmissionTimer;
 		private const int PendingRosterAdmissionTimeoutMs = 60000;
+		private const int ConnectTimeSeedAdmissionGraceMs = 10000;
 									  // Typed reference to avoid downcasting CommunicationMonitor at every call site (#26)
 		private SdkConnectionMonitor _sdkMonitor;
 		// (best-effort) to drive ToggleParticipantPinState. Keyed by userId -> screenIndex.
@@ -800,6 +802,18 @@ namespace PepperDash.Essentials.Plugins
 				if (currentMeetingStatus.HasValue)
 				{
 					this.LogInformation("Seeding current meeting status on connect: {Status}", currentMeetingStatus.Value);
+
+					// If we're discovering an already-active meeting (rather than this program having
+					// just issued a Dial/StartMeeting), neither _isPendingRosterAdmission nor
+					// _hasConfirmedRosterAdmission is set, so ApplyMeetingStatus below would leave the
+					// call sitting on Connecting - and the UI showing "not in a call" - forever, with no
+					// timeout to fall back on (that timeout only arms from BeginPendingRosterAdmission,
+					// which nothing calls on this path). See BeginConnectTimeSeedAdmissionCheck.
+					if (currentMeetingStatus.Value == MeetingStatus.InMeeting && !_hasConfirmedRosterAdmission && !_isPendingRosterAdmission)
+					{
+						BeginConnectTimeSeedAdmissionCheck();
+					}
+
 					ApplyMeetingStatus(currentMeetingStatus.Value);
 				}
 				else
@@ -954,6 +968,32 @@ namespace PepperDash.Essentials.Plugins
 		}
 
 		/// <summary>
+		/// Handles discovering an already-active meeting on connect (see the connect-time seed in
+		/// OnControllerConnectionStateChanged) - distinct from BeginPendingRosterAdmission, which guards
+		/// a *live* join attempt against the waiting-room dance. That ambiguity doesn't apply here: this
+		/// program is just now registering SDK callbacks against a meeting that was already running
+		/// (e.g. the Essentials program restarted mid-call), not initiating a join, so a waiting-room
+		/// stint isn't realistically still in progress. Immediately checks the roster in case it's
+		/// already available, then gives it a short grace period for the normal participant-changed push
+		/// to confirm it - but if nothing arrives in that window, trusts the SDK's own InMeeting status
+		/// directly and confirms admission anyway, rather than leaving the call stuck on Connecting (and
+		/// the UI showing the room as not in a call) indefinitely.
+		/// </summary>
+		private void BeginConnectTimeSeedAdmissionCheck()
+		{
+			RefreshRosterAdmissionFromParticipants();
+			if (_hasConfirmedRosterAdmission) return;
+
+			_connectTimeSeedAdmissionTimer?.Stop();
+			_connectTimeSeedAdmissionTimer = new CTimer(_ =>
+			{
+				if (_hasConfirmedRosterAdmission) return;
+				this.LogWarning("No roster confirmation arrived within {0}ms of discovering an already-active meeting on connect - trusting the SDK's InMeeting status directly", ConnectTimeSeedAdmissionGraceMs);
+				ConfirmRosterAdmission();
+			}, ConnectTimeSeedAdmissionGraceMs);
+		}
+
+		/// <summary>
 		/// Confirms genuine meeting admission and promotes any call already sitting in ActiveCalls as
 		/// Connecting (from InMeeting or ConnectingToMeeting arriving before the roster did) to
 		/// Connected. Called once the roster contains our own entry - see
@@ -968,6 +1008,8 @@ namespace PepperDash.Essentials.Plugins
 			_isPendingRosterAdmission = false;
 			_pendingRosterAdmissionTimeoutTimer?.Stop();
 			_pendingRosterAdmissionTimeoutTimer = null;
+			_connectTimeSeedAdmissionTimer?.Stop();
+			_connectTimeSeedAdmissionTimer = null;
 
 			var existing = ActiveCalls.FirstOrDefault();
 			if (existing != null && existing.Status != eCodecCallStatus.Connected)
@@ -1048,6 +1090,8 @@ namespace PepperDash.Essentials.Plugins
 			_isPendingRosterAdmission = false;
 			_pendingRosterAdmissionTimeoutTimer?.Stop();
 			_pendingRosterAdmissionTimeoutTimer = null;
+			_connectTimeSeedAdmissionTimer?.Stop();
+			_connectTimeSeedAdmissionTimer = null;
 
 			_currentMeetingId = string.Empty;
 			_currentMeetingNumber = string.Empty;
