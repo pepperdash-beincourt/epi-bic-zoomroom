@@ -2889,6 +2889,19 @@ namespace PepperDash.Essentials.Plugins
 			return true;
 		}
 
+		// The touchpanel's Zoom Participants panel sends the same generic per-userId mute actions for
+		// every row, including the room's own ("myself") row - it has no way to know that row is
+		// special. TryGetControllableParticipant rejects IsMyself outright (host controls target OTHER
+		// participants), which used to make the room's own mic/camera buttons in that panel silent
+		// no-ops. Route a self-targeted call to the room-level SDK controls instead, so those buttons
+		// work: PrivacyModeOn/Off is this room's own mic (SetAudioMute under the hood - see its
+		// definition), CameraMuteOn/Off is this room's own camera.
+		private bool IsSelf(int userId)
+		{
+			lock (_participantLock)
+				return Participants.CurrentParticipants.Any(p => p.UserId == userId && p.IsMyself);
+		}
+
 		#region IHasParticipantAudioMute Members
 
 		public void MuteAudioForAllParticipants()
@@ -2898,18 +2911,22 @@ namespace PepperDash.Essentials.Plugins
 
 		public void MuteAudioForParticipant(int userId)
 		{
+			if (IsSelf(userId)) { PrivacyModeOn(); return; }
 			if (!TryGetControllableParticipant(userId, nameof(MuteAudioForParticipant), out _)) return;
 			_controller.MuteUserAudio(userId, true);
 		}
 
 		public void UnmuteAudioForParticipant(int userId)
 		{
+			if (IsSelf(userId)) { PrivacyModeOff(); return; }
 			if (!TryGetControllableParticipant(userId, nameof(UnmuteAudioForParticipant), out _)) return;
 			_controller.MuteUserAudio(userId, false);
 		}
 
 		public void ToggleAudioForParticipant(int userId)
 		{
+			if (IsSelf(userId)) { PrivacyModeToggle(); return; }
+
 			if (!TryGetControllableParticipant(userId, nameof(ToggleAudioForParticipant), out var user)) return;
 
 			// NOTE: the host can mute directly, but "unmute" only sends a REQUEST (the participant
@@ -2933,18 +2950,22 @@ namespace PepperDash.Essentials.Plugins
 
 		public void MuteVideoForParticipant(int userId)
 		{
+			if (IsSelf(userId)) { CameraMuteOn(); return; }
 			if (!TryGetControllableParticipant(userId, nameof(MuteVideoForParticipant), out _)) return;
 			_controller.MuteUserVideo(userId, true);
 		}
 
 		public void UnmuteVideoForParticipant(int userId)
 		{
+			if (IsSelf(userId)) { CameraMuteOff(); return; }
 			if (!TryGetControllableParticipant(userId, nameof(UnmuteVideoForParticipant), out _)) return;
 			_controller.MuteUserVideo(userId, false);
 		}
 
 		public void ToggleVideoForParticipant(int userId)
 		{
+			if (IsSelf(userId)) { CameraMuteToggle(); return; }
+
 			if (!TryGetControllableParticipant(userId, nameof(ToggleVideoForParticipant), out var user)) return;
 
 			// Same caveat as audio: the host can stop a participant's video directly, but starting it
