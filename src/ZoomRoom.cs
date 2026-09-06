@@ -51,6 +51,15 @@ namespace PepperDash.Essentials.Plugins
 		private bool _sdkIsCoHost;
 		private int _sdkSharingState; // 0 = not sharing
 
+		// True only while this plugin has explicitly asked to share the room's HDMI/BlackMagic
+		// content (via StartSharing). The Zoom Room appliance can auto-start that same share on its
+		// own the moment it senses a signal on the content HDMI input, with no call into this class
+		// at all - this room's presentation content is meant to reach the call only through the
+		// room's own routing, never the codec's native auto-share. Set true in StartSharing, false
+		// in StopSharing/on disconnect, and checked in OnControllerAirPlayStatusChanged to reverse
+		// any share this plugin did not ask for.
+		private bool _weRequestedHdmiSharing;
+
 		// True once the participant roster has confirmed our own entry (IsMyself) for the current
 		// join attempt. The ZRC SDK reports MeetingStatus.InMeeting the instant the room joins the
 		// Zoom session infrastructure - which happens BEFORE a host admits it from a waiting room -
@@ -1103,6 +1112,7 @@ namespace PepperDash.Essentials.Plugins
 			_sdkIsRecording = false;
 			_sdkCanRecord = false;
 			_sdkSharingState = 0;
+			_weRequestedHdmiSharing = false;
 			_sdkPhoneOffHook = false;
 			_sdkSipCallerName = string.Empty;
 			_sdkSipCallerNumber = string.Empty;
@@ -1356,6 +1366,16 @@ namespace PepperDash.Essentials.Plugins
 
 		private void OnControllerAirPlayStatusChanged(object sender, AirPlayStatusEventArgs e)
 		{
+			// The Zoom Room appliance can auto-start sharing the content HDMI input the moment it
+			// senses a signal, entirely on its own - this fires with no call into StartSharing at
+			// all. This room's content is meant to reach the call only through the room's own
+			// explicit routing, so immediately reverse any HDMI share this plugin did not ask for.
+			if (e.IsSharingBlackMagic && !_weRequestedHdmiSharing)
+			{
+				this.LogWarning("Zoom Room auto-started sharing the content HDMI input without a StartSharing request (signal detected on connect) — stopping it");
+				_controller.ShareBlackMagic(false, false);
+			}
+
 			Status.Sharing.isAirHostClientConnected = e.IsAirHostClientConnected;
 			Status.Sharing.isBlackMagicConnected = e.IsBlackMagicConnected;
 			Status.Sharing.isBlackMagicDataAvailable = e.IsBlackMagicDataAvailable;
@@ -1574,13 +1594,18 @@ namespace PepperDash.Essentials.Plugins
 				this.LogWarning("StartSharing: no HDMI source detected (connected={Connected} dataAvailable={DataAvailable}) — ShareBlackMagic will likely fail",
 					Status.Sharing.isBlackMagicConnected, Status.Sharing.isBlackMagicDataAvailable);
 			}
+			_weRequestedHdmiSharing = true;
 			_controller.ShareBlackMagic(true, false);
 		}
 
 		/// <summary>
 		/// Stops sharing the current presentation
 		/// </summary>
-		public override void StopSharing() { _controller.StopShare(); }
+		public override void StopSharing()
+		{
+			_weRequestedHdmiSharing = false;
+			_controller.StopShare();
+		}
 
 
 
@@ -2210,6 +2235,15 @@ namespace PepperDash.Essentials.Plugins
 		/// <param name="duration">duration of meeting</param>
 		public void StartMeeting(uint duration)
 		{
+			// A room that starts its own instant meeting is unconditionally its host from the first
+			// instant - unlike joining a meeting, there is no scenario where StartInstantMeeting
+			// succeeds and this room is not the host. Assert that directly rather than depending on
+			// RefreshHostFromParticipants' roster-based fallback, which only runs from a
+			// participant-list-changed callback: a meeting nobody else ever joins may never produce
+			// one, leaving _sdkIsHost stuck false and EndCall/EndAllCalls calling LeaveMeeting()
+			// instead of EndMeetingForAll() - the room starts a meeting it then can't end
+			// (#confirmed via live testing).
+			_sdkIsHost = true;
 			BeginPendingRosterAdmission();
 			_controller.StartInstantMeeting();
 		}
