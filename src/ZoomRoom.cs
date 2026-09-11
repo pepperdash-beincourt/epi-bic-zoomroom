@@ -1243,6 +1243,19 @@ namespace PepperDash.Essentials.Plugins
 			RecordConsentPromptIsVisible.FireUpdate();
 		}
 
+		/// <summary>
+		/// Test hook: raises the recording-request prompt exactly as an SDK request would, without a
+		/// participant having to ask. From the console:
+		/// <c>devjson:1 {"deviceKey":"zoomRoom","methodName":"SimulateRecordingRequest","params":["Test User", 0]}</c>
+		/// (recordingType 0 = local, 1 = cloud). Allow/Deny from the UI then runs the real answer path;
+		/// outside a meeting the SDK just returns an error code, which is logged.
+		/// </summary>
+		public void SimulateRecordingRequest(string senderName, int recordingType)
+		{
+			this.LogWarning("SIMULATED recording request (console test hook): sender=\"{Sender}\" type={Type}", senderName, recordingType);
+			OnControllerRecordingRequestReceived(this, new SdkEventArgs { Message = senderName ?? string.Empty, ErrorCode = recordingType });
+		}
+
 		// ── Unified participant event handler ─────────────────────────────────────
 		// All four SDK participant events (Initialized, UserJoined, UserLeft, UserUpdated)
 		// are routed here. In SDK .22 only ParticipantsInitialized and UserJoined are raised

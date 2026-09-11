@@ -117,16 +117,20 @@ namespace PepperDash.Essentials.Plugins
                     return;
                 }
 
+                // Compare content, not just length: two wrapper builds can easily land on the same byte
+                // count, and a stale .so left in place would silently run the old native code.
                 if (File.Exists(targetPath) &&
-                    new FileInfo(targetPath).Length == resourceStream.Length)
+                    new FileInfo(targetPath).Length == resourceStream.Length &&
+                    SameContent(targetPath, resourceStream))
                 {
                     this.LogInformation(
-                        "Native wrapper already staged at '{Target}' (size matches) — skipping copy.",
+                        "Native wrapper already staged at '{Target}' (content matches) — skipping copy.",
                         targetPath);
                     ZrcSdk.SetLibraryPath(targetDir);
                     return;
                 }
 
+                resourceStream.Position = 0;
                 using (var fileStream = File.Create(targetPath))
                 {
                     resourceStream.CopyTo(fileStream);
@@ -682,5 +686,16 @@ namespace PepperDash.Essentials.Plugins
             }
             ScheduleReconnect();
         }
-    }
+            /// <summary>SHA-256 compare of a staged file against an embedded resource stream; leaves the stream at position 0.</summary>
+        private static bool SameContent(string path, Stream resource)
+        {
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            byte[] fileHash;
+            using (var f = File.OpenRead(path)) fileHash = sha.ComputeHash(f);
+            resource.Position = 0;
+            var resHash = sha.ComputeHash(resource);
+            resource.Position = 0;
+            return fileHash.AsSpan().SequenceEqual(resHash);
+        }
+}
 }
