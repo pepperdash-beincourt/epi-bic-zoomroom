@@ -87,6 +87,7 @@ namespace PepperDash.Essentials.Plugins
         bool SetMuteOnEntry(bool mute);
         bool AnswerUnmuteRequest(bool accepted);
         bool AllowAttendeesUnmute(bool allow);
+        bool AllowAttendeesStartVideo(bool allow);
 
         // ── In-call prompt answers (see ZoomRoom.Prompts.cs) ─────────────────
         /// <summary>Answers a meeting reminder (native MeetingReminderType value).</summary>
@@ -272,6 +273,12 @@ namespace PepperDash.Essentials.Plugins
         event EventHandler<PromptEventArgs> PromptReceived;
         /// <summary>The host asked this room to unmute its audio; answer with <see cref="AnswerUnmuteRequest"/>.</summary>
         event EventHandler<SdkEventArgs> AudioUnmuteRequested;
+        /// <summary>Mute-on-entry setting changed (ErrorCode 1 = on).</summary>
+        event EventHandler<SdkEventArgs> MuteOnEntryChanged;
+        /// <summary>Whether attendees may unmute themselves changed (ErrorCode 1 = allowed).</summary>
+        event EventHandler<SdkEventArgs> AllowAttendeesUnmuteChanged;
+        /// <summary>Whether attendees may start video changed (ErrorCode 1 = allowed).</summary>
+        event EventHandler<SdkEventArgs> AllowAttendeesVideoChanged;
         /// <summary>A participant asked to control this room's camera (ErrorCode = userId); answer with <see cref="RespondRemoteCameraControl"/>.</summary>
         event EventHandler<SdkEventArgs> FarEndCameraControlRequested;
         event EventHandler<MeetingRecordingInfoEventArgs> MeetingRecordingInfoChanged;

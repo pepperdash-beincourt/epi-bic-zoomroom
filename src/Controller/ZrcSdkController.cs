@@ -286,6 +286,9 @@ namespace PepperDash.Essentials.Plugins
             _sdk.RecordingRequest        += (s, e) => SafeRaise(() => RecordingRequestReceived?.Invoke(this, e));
             _sdk.PromptReceived          += (s, e) => SafeRaise(() => PromptReceived?.Invoke(this, e));
             _sdk.AskUnmuteByHost         += (s, e) => SafeRaise(() => AudioUnmuteRequested?.Invoke(this, e));
+            _sdk.MuteOnEntry             += (s, e) => SafeRaise(() => MuteOnEntryChanged?.Invoke(this, e));
+            _sdk.AllowAttendeesUnmuteChanged += (s, e) => SafeRaise(() => AllowAttendeesUnmuteChanged?.Invoke(this, e));
+            _sdk.AllowAttendeesVideoChanged  += (s, e) => SafeRaise(() => AllowAttendeesVideoChanged?.Invoke(this, e));
             _sdk.FarEndCameraControlRequest += (s, e) => SafeRaise(() => FarEndCameraControlRequested?.Invoke(this, e));
             _sdk.MeetingRecordingInfoChanged += (s, e) => SafeRaise(() => MeetingRecordingInfoChanged?.Invoke(this, e));
             _sdk.CameraPresetInfoChanged += (s, e) => SafeRaise(() => CameraPresetInfoChanged?.Invoke(this, e));
@@ -432,6 +435,7 @@ namespace PepperDash.Essentials.Plugins
         public bool SetMuteOnEntry(bool mute)                  => Guard(nameof(SetMuteOnEntry)) && Rc(nameof(SetMuteOnEntry), _sdk.SetMuteOnEntry(mute));
         public bool AnswerUnmuteRequest(bool accepted)         => Guard(nameof(AnswerUnmuteRequest)) && Rc(nameof(AnswerUnmuteRequest), _sdk.AnswerUnmuteRequest(accepted));
         public bool AllowAttendeesUnmute(bool allow)           => Guard(nameof(AllowAttendeesUnmute)) && Rc(nameof(AllowAttendeesUnmute), _sdk.AllowAttendeesUnmute(allow));
+        public bool AllowAttendeesStartVideo(bool allow)       => Guard(nameof(AllowAttendeesStartVideo)) && Rc(nameof(AllowAttendeesStartVideo), _sdk.AllowAttendeesStartVideo(allow));
 
         // ── In-call prompt answers ────────────────────────────────────────────
         public bool ConfirmMeetingReminder(bool agree, int reminderType)      => Guard(nameof(ConfirmMeetingReminder)) && Rc(nameof(ConfirmMeetingReminder), _sdk.ConfirmMeetingReminder(agree, (MeetingReminderType)reminderType));
@@ -544,6 +548,9 @@ namespace PepperDash.Essentials.Plugins
         public event EventHandler<SdkEventArgs> RecordingRequestReceived;
         public event EventHandler<PromptEventArgs> PromptReceived;
         public event EventHandler<SdkEventArgs> AudioUnmuteRequested;
+        public event EventHandler<SdkEventArgs> MuteOnEntryChanged;
+        public event EventHandler<SdkEventArgs> AllowAttendeesUnmuteChanged;
+        public event EventHandler<SdkEventArgs> AllowAttendeesVideoChanged;
         public event EventHandler<SdkEventArgs> FarEndCameraControlRequested;
         public event EventHandler<MeetingRecordingInfoEventArgs> MeetingRecordingInfoChanged;
         public event EventHandler<CameraPresetInfoEventArgs> CameraPresetInfoChanged;

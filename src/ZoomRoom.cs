@@ -694,6 +694,7 @@ namespace PepperDash.Essentials.Plugins
 			controller.AddDeviceMessenger(new IHasMeetingLockMessenger($"{Key}-meetingLock-{controller.Key}", path, this));
 			controller.AddDeviceMessenger(new IHasMeetingRecordingWithPromptMessenger($"{Key}-meetingRecording-{controller.Key}", path, this));
 			controller.AddDeviceMessenger(new ZoomRoomPromptsMessenger($"{Key}-prompts-{controller.Key}", path, this));
+			controller.AddDeviceMessenger(new ZoomRoomHostControlsMessenger($"{Key}-hostControls-{controller.Key}", path, this));
 			controller.AddDeviceMessenger(new IHasPresentationOnlyMeetingMessenger($"{Key}-presentationOnly-{controller.Key}", path, this));
 			controller.AddDeviceMessenger(new IHasCameraAutoModeMessenger($"{Key}-cameraAutoMode-{controller.Key}", path, this));
 			controller.AddDeviceMessenger(new IHasSelfviewPositionMessenger($"{Key}-selfviewPosition-{controller.Key}", path, this));
@@ -744,6 +745,7 @@ namespace PepperDash.Essentials.Plugins
 			// a separate ParticipantCountChanged handler would double-publish the roster event.
 			_controller.HostChanged += OnControllerHostChanged;
 			SubscribePromptEvents();
+			SubscribeHostControlEvents();
 			_controller.SharingStatusChanged += OnControllerSharingStatusChanged;
 			_controller.AirPlayStatusChanged += OnControllerAirPlayStatusChanged;
 			_controller.VideoPageStatusChanged += OnControllerVideoPageStatusChanged;
@@ -1123,6 +1125,7 @@ namespace PepperDash.Essentials.Plugins
 			_recordingRequestType = "unknown";
 			RecordConsentPromptIsVisible.FireUpdate();
 			ClearPrompts("meeting reset");
+			ResetHostControls();
 			lock (_participantLock)
 			{
 				_pinnedUserScreens.Clear();
