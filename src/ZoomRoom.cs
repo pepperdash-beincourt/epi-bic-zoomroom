@@ -1117,6 +1117,8 @@ namespace PepperDash.Essentials.Plugins
 			_sdkSipCallerName = string.Empty;
 			_sdkSipCallerNumber = string.Empty;
 			_recordConsentPromptIsVisible = false;
+			_recordingRequestSenderName = string.Empty;
+			_recordingRequestType = "unknown";
 			RecordConsentPromptIsVisible.FireUpdate();
 			lock (_participantLock)
 			{
@@ -1229,8 +1231,14 @@ namespace PepperDash.Essentials.Plugins
 			UpdateMeetingInfo(); // refreshes MeetingInfo.CanRecord on the bridge join
 		}
 
+		// A participant asked this room (the host) for permission to record. The SDK carries the
+		// requester's display name in Message (empty for a cloud recording request) and the native
+		// RecordingType in ErrorCode (0 local, 1 cloud). Answered via RecordingPromptAcknowledgement.
 		private void OnControllerRecordingRequestReceived(object sender, SdkEventArgs e)
 		{
+			_recordingRequestSenderName = e?.Message ?? string.Empty;
+			_recordingRequestType = e?.ErrorCode == 1 ? "cloud" : e?.ErrorCode == 0 ? "local" : "unknown";
+			this.LogInformation("RecordingRequest from \"{Sender}\" type={Type}", _recordingRequestSenderName, _recordingRequestType);
 			_recordConsentPromptIsVisible = true;
 			RecordConsentPromptIsVisible.FireUpdate();
 		}
@@ -3876,12 +3884,23 @@ namespace PepperDash.Essentials.Plugins
 		public BoolFeedback MeetingIsRecordingFeedback { get; private set; }
 
 		bool _recordConsentPromptIsVisible;
+		string _recordingRequestSenderName = string.Empty;
+		string _recordingRequestType = "unknown";
 
 		public BoolFeedback RecordConsentPromptIsVisible { get; private set; }
 
+		/// <summary>Display name of the participant whose recording request is pending; empty for a cloud request.</summary>
+		public string RecordingRequestSenderName => _recordingRequestSenderName;
+
+		/// <summary>"local", "cloud" or "unknown" for the pending recording request.</summary>
+		public string RecordingRequestType => _recordingRequestType;
+
 		public void RecordingPromptAcknowledgement(bool agree)
 		{
+			this.LogInformation("RecordingRequest from \"{Sender}\" answered: agree={Agree}", _recordingRequestSenderName, agree);
 			_recordConsentPromptIsVisible = false;
+			_recordingRequestSenderName = string.Empty;
+			_recordingRequestType = "unknown";
 			RecordConsentPromptIsVisible.FireUpdate();
 			_controller.ResponseToRecordingRequest(agree);
 		}
