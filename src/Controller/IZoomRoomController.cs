@@ -88,6 +88,21 @@ namespace PepperDash.Essentials.Plugins
         bool AnswerUnmuteRequest(bool accepted);
         bool AllowAttendeesUnmute(bool allow);
 
+        // ── In-call prompt answers (see ZoomRoom.Prompts.cs) ─────────────────
+        /// <summary>Answers a meeting reminder (native MeetingReminderType value).</summary>
+        bool ConfirmMeetingReminder(bool agree, int reminderType);
+        bool ConfirmCustomizedMeetingReminder(bool agree, int customizedType);
+        /// <summary>Answers a consent (native ConsentType value; consentId for the Common type).</summary>
+        bool ConfirmConsent(bool agree, int consentType, string consentId);
+        bool ConfirmCombinedConsent(bool agree, long consentType);
+        /// <summary>Native PrivacyAlertAction / PrivacyAlertType values.</summary>
+        bool HandlePrivacyAlert(int action, int type);
+        bool ContinueMeetingOnInactivity();
+        bool AnswerHostRequestUnmuteVideo(bool accepted);
+        bool RespondRemoteCameraControl(int userId, bool accept);
+        bool ResponseHostInviteToMainSession(bool accept);
+        bool JoinBreakoutRoom();
+
         /// <summary>Sets the room speaker (audio output) volume, in the SDK's native float scale.</summary>
         bool SetSpeakerVolume(float volume);
 
@@ -253,6 +268,12 @@ namespace PepperDash.Essentials.Plugins
         event EventHandler<SdkEventArgs> AudioMuteStatusChanged;
         event EventHandler<SdkEventArgs> RecordingStatusChanged;
         event EventHandler<SdkEventArgs> RecordingRequestReceived;
+        /// <summary>Dialog-style notification from the SDK (reminder, consent, request, invite, role change).</summary>
+        event EventHandler<PromptEventArgs> PromptReceived;
+        /// <summary>The host asked this room to unmute its audio; answer with <see cref="AnswerUnmuteRequest"/>.</summary>
+        event EventHandler<SdkEventArgs> AudioUnmuteRequested;
+        /// <summary>A participant asked to control this room's camera (ErrorCode = userId); answer with <see cref="RespondRemoteCameraControl"/>.</summary>
+        event EventHandler<SdkEventArgs> FarEndCameraControlRequested;
         event EventHandler<MeetingRecordingInfoEventArgs> MeetingRecordingInfoChanged;
         event EventHandler<CameraPresetInfoEventArgs> CameraPresetInfoChanged;
         event EventHandler<ParticipantListEventArgs> ParticipantsInitialized;

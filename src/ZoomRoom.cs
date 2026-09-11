@@ -26,7 +26,7 @@ using PepperDash.ZoomRoom.Sdk.EventArgs;
 
 namespace PepperDash.Essentials.Plugins
 {
-	public class ZoomRoom : VideoCodecBase, IHasCodecSelfView, IHasDirectoryHistoryStack, ICommunicationMonitor,
+	public partial class ZoomRoom : VideoCodecBase, IHasCodecSelfView, IHasDirectoryHistoryStack, ICommunicationMonitor,
 		IHasScheduleAwareness, IHasCodecCameras, IHasParticipants, IHasCameraOff, IHasCameraMuteWithUnmuteReqeust, IHasCameraAutoMode,
 		IHasFarEndContentStatus, IHasSelfviewPosition, IHasPhoneDialing, IHasZoomRoomLayouts, IHasParticipantPinUnpin,
 		IHasParticipantAudioMute, IHasSelfviewSize, IPasswordPrompt, IHasStartMeeting, IHasMeetingInfo, IHasPresentationOnlyMeeting,
@@ -693,6 +693,7 @@ namespace PepperDash.Essentials.Plugins
 			controller.AddDeviceMessenger(new IHasParticipantPinUnpinMessenger($"{Key}-participantPin-{controller.Key}", path, this));
 			controller.AddDeviceMessenger(new IHasMeetingLockMessenger($"{Key}-meetingLock-{controller.Key}", path, this));
 			controller.AddDeviceMessenger(new IHasMeetingRecordingWithPromptMessenger($"{Key}-meetingRecording-{controller.Key}", path, this));
+			controller.AddDeviceMessenger(new ZoomRoomPromptsMessenger($"{Key}-prompts-{controller.Key}", path, this));
 			controller.AddDeviceMessenger(new IHasPresentationOnlyMeetingMessenger($"{Key}-presentationOnly-{controller.Key}", path, this));
 			controller.AddDeviceMessenger(new IHasCameraAutoModeMessenger($"{Key}-cameraAutoMode-{controller.Key}", path, this));
 			controller.AddDeviceMessenger(new IHasSelfviewPositionMessenger($"{Key}-selfviewPosition-{controller.Key}", path, this));
@@ -742,6 +743,7 @@ namespace PepperDash.Essentials.Plugins
 			// UserJoined/Left/Updated already call Participants.OnParticipantsChanged(), so
 			// a separate ParticipantCountChanged handler would double-publish the roster event.
 			_controller.HostChanged += OnControllerHostChanged;
+			SubscribePromptEvents();
 			_controller.SharingStatusChanged += OnControllerSharingStatusChanged;
 			_controller.AirPlayStatusChanged += OnControllerAirPlayStatusChanged;
 			_controller.VideoPageStatusChanged += OnControllerVideoPageStatusChanged;
@@ -1120,6 +1122,7 @@ namespace PepperDash.Essentials.Plugins
 			_recordingRequestSenderName = string.Empty;
 			_recordingRequestType = "unknown";
 			RecordConsentPromptIsVisible.FireUpdate();
+			ClearPrompts("meeting reset");
 			lock (_participantLock)
 			{
 				_pinnedUserScreens.Clear();
@@ -1318,6 +1321,7 @@ namespace PepperDash.Essentials.Plugins
 			_sdkIsHost = e.ErrorCode == 1;
 			this.LogDebug("HostChanged: isHost={IsHost}", _sdkIsHost);
 			UpdateMeetingInfo();
+			NoteRoleChange();
 		}
 
 		/// <summary>
@@ -1335,6 +1339,7 @@ namespace PepperDash.Essentials.Plugins
 			_sdkIsHost = isHost;
 			this.LogDebug("Host state from roster: isHost={IsHost}", isHost);
 			UpdateMeetingInfo();
+			NoteRoleChange();
 		}
 
 		/// <summary>
@@ -1363,6 +1368,7 @@ namespace PepperDash.Essentials.Plugins
 			_sdkIsCoHost = isCoHost;
 			this.LogDebug("Co-host state from roster: isCoHost={IsCoHost}", isCoHost);
 			CoHostChanged?.Invoke(this, isCoHost);
+			NoteRoleChange();
 		}
 
 		// Diagnostic (Debug): logs the raw role flags the SDK delivers for each participant in a

@@ -284,6 +284,9 @@ namespace PepperDash.Essentials.Plugins
             _sdk.AudioStatus             += (s, e) => SafeRaise(() => AudioMuteStatusChanged?.Invoke(this, e));
             _sdk.RecordingStatus         += (s, e) => SafeRaise(() => RecordingStatusChanged?.Invoke(this, e));
             _sdk.RecordingRequest        += (s, e) => SafeRaise(() => RecordingRequestReceived?.Invoke(this, e));
+            _sdk.PromptReceived          += (s, e) => SafeRaise(() => PromptReceived?.Invoke(this, e));
+            _sdk.AskUnmuteByHost         += (s, e) => SafeRaise(() => AudioUnmuteRequested?.Invoke(this, e));
+            _sdk.FarEndCameraControlRequest += (s, e) => SafeRaise(() => FarEndCameraControlRequested?.Invoke(this, e));
             _sdk.MeetingRecordingInfoChanged += (s, e) => SafeRaise(() => MeetingRecordingInfoChanged?.Invoke(this, e));
             _sdk.CameraPresetInfoChanged += (s, e) => SafeRaise(() => CameraPresetInfoChanged?.Invoke(this, e));
             _sdk.ParticipantsInitialized += (s, e) => SafeRaise(() => ParticipantsInitialized?.Invoke(this, e));
@@ -429,6 +432,18 @@ namespace PepperDash.Essentials.Plugins
         public bool SetMuteOnEntry(bool mute)                  => Guard(nameof(SetMuteOnEntry)) && Rc(nameof(SetMuteOnEntry), _sdk.SetMuteOnEntry(mute));
         public bool AnswerUnmuteRequest(bool accepted)         => Guard(nameof(AnswerUnmuteRequest)) && Rc(nameof(AnswerUnmuteRequest), _sdk.AnswerUnmuteRequest(accepted));
         public bool AllowAttendeesUnmute(bool allow)           => Guard(nameof(AllowAttendeesUnmute)) && Rc(nameof(AllowAttendeesUnmute), _sdk.AllowAttendeesUnmute(allow));
+
+        // ── In-call prompt answers ────────────────────────────────────────────
+        public bool ConfirmMeetingReminder(bool agree, int reminderType)      => Guard(nameof(ConfirmMeetingReminder)) && Rc(nameof(ConfirmMeetingReminder), _sdk.ConfirmMeetingReminder(agree, (MeetingReminderType)reminderType));
+        public bool ConfirmCustomizedMeetingReminder(bool agree, int type)    => Guard(nameof(ConfirmCustomizedMeetingReminder)) && Rc(nameof(ConfirmCustomizedMeetingReminder), _sdk.ConfirmCustomizedMeetingReminder(agree, type));
+        public bool ConfirmConsent(bool agree, int consentType, string id)    => Guard(nameof(ConfirmConsent)) && Rc(nameof(ConfirmConsent), _sdk.ConfirmConsent(agree, (ConsentType)consentType, id));
+        public bool ConfirmCombinedConsent(bool agree, long consentType)      => Guard(nameof(ConfirmCombinedConsent)) && Rc(nameof(ConfirmCombinedConsent), _sdk.ConfirmCombinedConsent(agree, consentType));
+        public bool HandlePrivacyAlert(int action, int type)                  => Guard(nameof(HandlePrivacyAlert)) && Rc(nameof(HandlePrivacyAlert), _sdk.HandlePrivacyAlert((PrivacyAlertAction)action, (PrivacyAlertType)type));
+        public bool ContinueMeetingOnInactivity()                             => Guard(nameof(ContinueMeetingOnInactivity)) && Rc(nameof(ContinueMeetingOnInactivity), _sdk.ContinueMeetingOnInactivity());
+        public bool AnswerHostRequestUnmuteVideo(bool accepted)               => Guard(nameof(AnswerHostRequestUnmuteVideo)) && Rc(nameof(AnswerHostRequestUnmuteVideo), _sdk.AnswerHostRequestUnmuteVideo(accepted));
+        public bool RespondRemoteCameraControl(int userId, bool accept)       => Guard(nameof(RespondRemoteCameraControl)) && Rc(nameof(RespondRemoteCameraControl), _sdk.RespondRemoteCameraControl(userId, accept));
+        public bool ResponseHostInviteToMainSession(bool accept)              => Guard(nameof(ResponseHostInviteToMainSession)) && Rc(nameof(ResponseHostInviteToMainSession), _sdk.ResponseHostInviteToMainSession(accept));
+        public bool JoinBreakoutRoom()                                        => Guard(nameof(JoinBreakoutRoom)) && Rc(nameof(JoinBreakoutRoom), _sdk.JoinBreakoutRoom());
         public bool SetSpeakerVolume(float volume)             => Guard(nameof(SetSpeakerVolume)) && Rc(nameof(SetSpeakerVolume), _sdk.SetSpeakerVolume(volume));
         public float GetSpeakerVolume()                        => _sdk.GetSpeakerVolume(out var v) ? v : -1f;
 
@@ -527,6 +542,9 @@ namespace PepperDash.Essentials.Plugins
         public event EventHandler<SdkEventArgs> AudioMuteStatusChanged;
         public event EventHandler<SdkEventArgs> RecordingStatusChanged;
         public event EventHandler<SdkEventArgs> RecordingRequestReceived;
+        public event EventHandler<PromptEventArgs> PromptReceived;
+        public event EventHandler<SdkEventArgs> AudioUnmuteRequested;
+        public event EventHandler<SdkEventArgs> FarEndCameraControlRequested;
         public event EventHandler<MeetingRecordingInfoEventArgs> MeetingRecordingInfoChanged;
         public event EventHandler<CameraPresetInfoEventArgs> CameraPresetInfoChanged;
         public event EventHandler<ParticipantListEventArgs> ParticipantsInitialized;
