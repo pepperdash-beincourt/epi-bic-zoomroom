@@ -294,15 +294,32 @@ namespace PepperDash.Essentials.Plugins
 			_controller.RenameBreakoutRoom(roomId, name.Trim());
 		}
 
-		/// <summary>Assigns (rooms being edited) or moves (rooms open) participants to a room.</summary>
+		/// <summary>
+		/// Assigns (rooms being edited) or moves (rooms open) participants to a room. An empty
+		/// <paramref name="roomId"/> unassigns them back to the main session, which the SDK only
+		/// accepts while the rooms are being edited; once rooms are open use
+		/// <see cref="InviteBackToMainSession"/> instead.
+		/// </summary>
 		public void AssignToBreakoutRoom(IEnumerable<string> userGuids, string roomId)
 		{
 			var guids = (userGuids ?? Enumerable.Empty<string>()).Where(g => !string.IsNullOrEmpty(g)).ToList();
-			if (guids.Count == 0 || string.IsNullOrEmpty(roomId)) return;
+			if (guids.Count == 0) return;
+			var unassign = string.IsNullOrEmpty(roomId);
+
 			if (_sdkBreakoutStatus == "started")
 			{
+				if (unassign)
+				{
+					this.LogWarning("AssignToBreakoutRoom: cannot unassign while rooms are open - use InviteBackToMainSession");
+					return;
+				}
 				this.LogInformation("MoveToBreakoutRoom {Count} participant(s) -> {Room}", guids.Count, roomId);
 				foreach (var g in guids) _controller.MoveUserToBreakoutRoom(g, roomId);
+			}
+			else if (unassign)
+			{
+				this.LogInformation("UnassignFromBreakoutRoom {Count} participant(s)", guids.Count);
+				_controller.AssignUsersToBreakoutRoom(guids, string.Empty);
 			}
 			else
 			{
