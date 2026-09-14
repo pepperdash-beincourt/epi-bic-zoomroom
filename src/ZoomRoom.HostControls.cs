@@ -78,5 +78,63 @@ namespace PepperDash.Essentials.Plugins
 			this.LogInformation("SetAllowAttendeesStartVideo {Allow}", allow);
 			_controller.AllowAttendeesStartVideo(allow);
 		}
+	
+
+		// ── Roles ──────────────────────────────────────────────────────────────
+
+		/// <summary>Claims host of the current meeting with the host key; the result shows up as a host change.</summary>
+		public void ClaimHost(string hostKey)
+		{
+			if (string.IsNullOrWhiteSpace(hostKey)) return;
+			this.LogInformation("ClaimHost with a {Length}-digit key", hostKey.Trim().Length);
+			_controller.ClaimHost(hostKey.Trim());
+		}
+
+		public void SetParticipantAsCoHost(int userId, bool assign)
+		{
+			this.LogInformation("SetParticipantAsCoHost {UserId} assign={Assign}", userId, assign);
+			_controller.AssignCohost(userId, assign);
+		}
+
+		public void PromoteToPanelist(int userId)
+		{
+			this.LogInformation("PromoteToPanelist {UserId}", userId);
+			_controller.PromoteAttendeeToPanelist(userId);
+		}
+
+		public void DemoteToAttendee(int userId)
+		{
+			this.LogInformation("DemoteToAttendee {UserId}", userId);
+			_controller.DemotePanelistToAttendee(userId);
+		}
+
+		public void AllowAttendeeTalk(int userId, bool allow)
+		{
+			this.LogInformation("AllowAttendeeTalk {UserId} allow={Allow}", userId, allow);
+			_controller.AllowWebinarAttendeeTalk(userId, allow);
+		}
+
+		// ── Cloud recording pause / resume ─────────────────────────────────────
+
+		private bool _sdkRecordingPaused;
+		private bool _sdkRecordingConnecting;
+
+		/// <summary>Raised when the paused / connecting state of the cloud recording changes.</summary>
+		public event EventHandler RecordingExtrasChanged;
+
+		public bool IsRecordingPaused => _sdkRecordingPaused;
+		public bool IsRecordingConnecting => _sdkRecordingConnecting;
+
+		public void PauseRecording()
+		{
+			this.LogInformation("PauseRecording");
+			_controller.PauseRecording();
+		}
+
+		public void ResumeRecording()
+		{
+			this.LogInformation("ResumeRecording");
+			_controller.ResumeRecording();
+		}
 	}
 }

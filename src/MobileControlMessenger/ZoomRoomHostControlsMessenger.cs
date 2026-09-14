@@ -33,6 +33,11 @@ namespace PepperDash.Essentials.AppServer.Messengers
             AddAction("/fullStatus", (id, content) => SendFullStatus(id));
 
             AddAction("/muteAllParticipants", (id, content) => _codec.MuteAllParticipants());
+            AddAction("/claimHost", (id, content) =>
+            {
+                var s = content?.ToObject<MobileControlSimpleContent<string>>();
+                if (!string.IsNullOrWhiteSpace(s?.Value)) _codec.ClaimHost(s.Value);
+            });
             AddAction("/askAllToUnmute", (id, content) => _codec.AskAllToUnmute());
 
             AddAction("/setMuteOnEntry", (id, content) =>

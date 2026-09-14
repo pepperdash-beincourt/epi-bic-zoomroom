@@ -53,6 +53,8 @@ namespace PepperDash.Essentials.Plugins
 		[JsonIgnore] internal long NativeType64 { get; set; }
 		[JsonIgnore] internal string ConsentId { get; set; }
 		[JsonIgnore] internal int UserId { get; set; }
+		[JsonIgnore] internal string SessionBID { get; set; }
+		[JsonIgnore] internal string SessionName { get; set; }
 
 		/// <summary>Identity used to replace / remove a prompt when the Zoom Room re-sends or closes it.</summary>
 		[JsonIgnore] internal string DedupKey => $"{Source}:{NativeKind}:{NativeType}:{NativeType64}:{ConsentId}:{UserId}";
@@ -100,6 +102,8 @@ namespace PepperDash.Essentials.Plugins
 				NativeType64 = e.Type64,
 				ConsentId = e.ConsentId ?? string.Empty,
 				UserId = e.UserId,
+				SessionBID = e.SessionBID ?? string.Empty,
+				SessionName = e.SessionName ?? string.Empty,
 				Title = e.Title ?? string.Empty,
 				Message = e.Message ?? string.Empty,
 				PositiveText = e.PositiveText ?? string.Empty,
@@ -165,6 +169,23 @@ namespace PepperDash.Essentials.Plugins
 					Default(p, "Return to Main Session",
 						$"{Who(e.FromUser, "The host")} is inviting this room back to the main session.",
 						"Return", "Stay");
+					break;
+				case ZrcPromptKind.BOHelpRequest:
+					p.Kind = "boHelpRequest";
+					Default(p, "Help Requested",
+						$"A participant in breakout room \"{e.SessionName}\" is asking for the host's help.",
+						"Join Room", "Ignore");
+					break;
+				case ZrcPromptKind.BOTimeUp:
+					p.Kind = "boTimeUp";
+					p.Informational = true;
+					Default(p, "Breakout Time Is Up", "The breakout room timer has ended. Close the rooms when ready.", "OK", string.Empty);
+					break;
+				case ZrcPromptKind.BOHelpResult:
+					p.Kind = "boHelpResult";
+					p.SubType = e.Type.ToString();
+					p.Informational = true;
+					Default(p, "Help Request", e.Type == 0 ? "Your request for help was sent to the host." : "The host is not available right now.", "OK", string.Empty);
 					break;
 				case ZrcPromptKind.WebinarRoleChanged:
 					p.Kind = "webinarRoleChanged";
@@ -324,6 +345,10 @@ namespace PepperDash.Essentials.Plugins
 					break;
 				case ZrcPromptKind.BOReturnToMainInvite:
 					_controller.ResponseHostInviteToMainSession(accept);
+					break;
+				case ZrcPromptKind.BOHelpRequest:
+					if (accept) _controller.JoinBreakoutRoomForHelp(p.ConsentId, p.SessionBID, p.SessionName);
+					else _controller.IgnoreBOHelpRequest(p.ConsentId);
 					break;
 				// MessageEvent / WebinarRoleChanged: informational, nothing to send.
 			}

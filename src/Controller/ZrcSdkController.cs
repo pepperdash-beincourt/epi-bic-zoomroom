@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -290,6 +291,11 @@ namespace PepperDash.Essentials.Plugins
             _sdk.AllowAttendeesUnmuteChanged += (s, e) => SafeRaise(() => AllowAttendeesUnmuteChanged?.Invoke(this, e));
             _sdk.AllowAttendeesVideoChanged  += (s, e) => SafeRaise(() => AllowAttendeesVideoChanged?.Invoke(this, e));
             _sdk.BOStatusChanged             += (s, e) => SafeRaise(() => BreakoutStatusChanged?.Invoke(this, e));
+            _sdk.BORoomListUpdated           += (s, e) => SafeRaise(() => BreakoutRoomListUpdated?.Invoke(this, e));
+            _sdk.BOOptionsChanged            += (s, e) => SafeRaise(() => BreakoutOptionsChanged?.Invoke(this, e));
+            _sdk.BOUserStatusChanged         += (s, e) => SafeRaise(() => BreakoutUserStatusChanged?.Invoke(this, e));
+            _sdk.BOTimerTick                 += (s, e) => SafeRaise(() => BreakoutTimerTick?.Invoke(this, e));
+            _sdk.BOParticipantsUpdated       += (s, e) => SafeRaise(() => BreakoutParticipantsUpdated?.Invoke(this, e));
             _sdk.FarEndCameraControlRequest += (s, e) => SafeRaise(() => FarEndCameraControlRequested?.Invoke(this, e));
             _sdk.MeetingRecordingInfoChanged += (s, e) => SafeRaise(() => MeetingRecordingInfoChanged?.Invoke(this, e));
             _sdk.CameraPresetInfoChanged += (s, e) => SafeRaise(() => CameraPresetInfoChanged?.Invoke(this, e));
@@ -454,6 +460,29 @@ namespace PepperDash.Essentials.Plugins
         public bool BroadcastMessageToBreakoutRooms(string message)           => Guard(nameof(BroadcastMessageToBreakoutRooms)) && Rc(nameof(BroadcastMessageToBreakoutRooms), _sdk.BroadcastMessageToBreakoutRooms(message));
         public bool LeaveBreakoutRoom()                                       => Guard(nameof(LeaveBreakoutRoom)) && Rc(nameof(LeaveBreakoutRoom), _sdk.LeaveBreakoutRoom());
         public bool AskForHelpInBreakoutRoom()                                => Guard(nameof(AskForHelpInBreakoutRoom)) && Rc(nameof(AskForHelpInBreakoutRoom), _sdk.AskForHelpInBreakoutRoom());
+
+        // ── Breakout rooms: creator / admin / data ────────────────────────────
+        public bool CreateBreakoutRooms(int count, int assignType)             => Guard(nameof(CreateBreakoutRooms)) && Rc(nameof(CreateBreakoutRooms), _sdk.CreateBreakoutRooms(count, (BOAssignType)assignType));
+        public bool AddBreakoutRoom()                                         => Guard(nameof(AddBreakoutRoom)) && Rc(nameof(AddBreakoutRoom), _sdk.AddBreakoutRoom());
+        public bool DeleteBreakoutRoom(string sessionBID)                     => Guard(nameof(DeleteBreakoutRoom)) && Rc(nameof(DeleteBreakoutRoom), _sdk.DeleteBreakoutRoom(sessionBID));
+        public bool RenameBreakoutRoom(string sessionBID, string newName)     => Guard(nameof(RenameBreakoutRoom)) && Rc(nameof(RenameBreakoutRoom), _sdk.RenameBreakoutRoom(sessionBID, newName));
+        public bool AssignUsersToBreakoutRoom(IEnumerable<string> g, string b) => Guard(nameof(AssignUsersToBreakoutRoom)) && Rc(nameof(AssignUsersToBreakoutRoom), _sdk.AssignUsersToBreakoutRoom(g, b));
+        public bool SetBOOptions(BOOptionsInfo options)                       => Guard(nameof(SetBOOptions)) && Rc(nameof(SetBOOptions), _sdk.SetBOOptions(options));
+        public bool RequestBOOptions()                                        => Guard(nameof(RequestBOOptions)) && Rc(nameof(RequestBOOptions), _sdk.RequestBOOptions());
+        public bool MoveUserToBreakoutRoom(string userGuid, string sessionBID) => Guard(nameof(MoveUserToBreakoutRoom)) && Rc(nameof(MoveUserToBreakoutRoom), _sdk.MoveUserToBreakoutRoom(userGuid, sessionBID));
+        public bool InviteBOUserReturnToMainSession(string userGuid)          => Guard(nameof(InviteBOUserReturnToMainSession)) && Rc(nameof(InviteBOUserReturnToMainSession), _sdk.InviteBOUserReturnToMainSession(userGuid));
+        public bool IgnoreBOHelpRequest(string userGuid)                      => Guard(nameof(IgnoreBOHelpRequest)) && Rc(nameof(IgnoreBOHelpRequest), _sdk.IgnoreBOHelpRequest(userGuid));
+        public bool JoinBreakoutRoomForHelp(string g, string b, string n)     => Guard(nameof(JoinBreakoutRoomForHelp)) && Rc(nameof(JoinBreakoutRoomForHelp), _sdk.JoinBreakoutRoomForHelp(g, b, n));
+        public bool JoinBreakoutRoomByBID(string sessionBID)                  => Guard(nameof(JoinBreakoutRoomByBID)) && Rc(nameof(JoinBreakoutRoomByBID), _sdk.JoinBreakoutRoomByBID(sessionBID));
+        public bool RequestBreakoutRoomList()                                 => Guard(nameof(RequestBreakoutRoomList)) && Rc(nameof(RequestBreakoutRoomList), _sdk.RequestBreakoutRoomList());
+        public bool RequestBreakoutRoomUserList()                             => Guard(nameof(RequestBreakoutRoomUserList)) && Rc(nameof(RequestBreakoutRoomUserList), _sdk.RequestBreakoutRoomUserList());
+
+        // ── Roles ─────────────────────────────────────────────────────────────
+        public bool ClaimHost(string hostKey)                                 => Guard(nameof(ClaimHost)) && Rc(nameof(ClaimHost), _sdk.ClaimHost(hostKey));
+        public bool AssignCohost(int userId, bool assign)                     => Guard(nameof(AssignCohost)) && Rc(nameof(AssignCohost), _sdk.AssignCohost(userId, assign));
+        public bool PromoteAttendeeToPanelist(int userId)                     => Guard(nameof(PromoteAttendeeToPanelist)) && Rc(nameof(PromoteAttendeeToPanelist), _sdk.PromoteAttendeeToPanelist(userId));
+        public bool DemotePanelistToAttendee(int userId)                      => Guard(nameof(DemotePanelistToAttendee)) && Rc(nameof(DemotePanelistToAttendee), _sdk.DemotePanelistToAttendee(userId));
+        public bool AllowWebinarAttendeeTalk(int userId, bool allow)          => Guard(nameof(AllowWebinarAttendeeTalk)) && Rc(nameof(AllowWebinarAttendeeTalk), _sdk.AllowWebinarAttendeeTalk(userId, allow));
         public bool SetSpeakerVolume(float volume)             => Guard(nameof(SetSpeakerVolume)) && Rc(nameof(SetSpeakerVolume), _sdk.SetSpeakerVolume(volume));
         public float GetSpeakerVolume()                        => _sdk.GetSpeakerVolume(out var v) ? v : -1f;
 
@@ -558,6 +587,11 @@ namespace PepperDash.Essentials.Plugins
         public event EventHandler<SdkEventArgs> AllowAttendeesUnmuteChanged;
         public event EventHandler<SdkEventArgs> AllowAttendeesVideoChanged;
         public event EventHandler<SdkEventArgs> BreakoutStatusChanged;
+        public event EventHandler<BORoom[]> BreakoutRoomListUpdated;
+        public event EventHandler<BOOptionsInfo> BreakoutOptionsChanged;
+        public event EventHandler<SdkEventArgs> BreakoutUserStatusChanged;
+        public event EventHandler<SdkEventArgs> BreakoutTimerTick;
+        public event EventHandler<BOParticipantListEventArgs> BreakoutParticipantsUpdated;
         public event EventHandler<SdkEventArgs> FarEndCameraControlRequested;
         public event EventHandler<MeetingRecordingInfoEventArgs> MeetingRecordingInfoChanged;
         public event EventHandler<CameraPresetInfoEventArgs> CameraPresetInfoChanged;

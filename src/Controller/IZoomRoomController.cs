@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using PepperDash.ZoomRoom.Sdk;
 using PepperDash.ZoomRoom.Sdk.EventArgs;
 
@@ -108,6 +109,29 @@ namespace PepperDash.Essentials.Plugins
         bool BroadcastMessageToBreakoutRooms(string message);
         bool LeaveBreakoutRoom();
         bool AskForHelpInBreakoutRoom();
+
+        // ── Breakout rooms: creator / admin / data ────────────────────────────
+        bool CreateBreakoutRooms(int count, int assignType);
+        bool AddBreakoutRoom();
+        bool DeleteBreakoutRoom(string sessionBID);
+        bool RenameBreakoutRoom(string sessionBID, string newName);
+        bool AssignUsersToBreakoutRoom(IEnumerable<string> userGuids, string sessionBID);
+        bool SetBOOptions(BOOptionsInfo options);
+        bool RequestBOOptions();
+        bool MoveUserToBreakoutRoom(string userGuid, string sessionBID);
+        bool InviteBOUserReturnToMainSession(string userGuid);
+        bool IgnoreBOHelpRequest(string userGuid);
+        bool JoinBreakoutRoomForHelp(string userGuid, string sessionBID, string sessionName);
+        bool JoinBreakoutRoomByBID(string sessionBID);
+        bool RequestBreakoutRoomList();
+        bool RequestBreakoutRoomUserList();
+
+        // ── Roles ─────────────────────────────────────────────────────────────
+        bool ClaimHost(string hostKey);
+        bool AssignCohost(int userId, bool assign);
+        bool PromoteAttendeeToPanelist(int userId);
+        bool DemotePanelistToAttendee(int userId);
+        bool AllowWebinarAttendeeTalk(int userId, bool allow);
 
         /// <summary>Sets the room speaker (audio output) volume, in the SDK's native float scale.</summary>
         bool SetSpeakerVolume(float volume);
@@ -286,6 +310,13 @@ namespace PepperDash.Essentials.Plugins
         event EventHandler<SdkEventArgs> AllowAttendeesVideoChanged;
         /// <summary>Breakout session status changed (ErrorCode = BO_STATUS: 1 edit, 2 started, 3 stopping, 4 ended).</summary>
         event EventHandler<SdkEventArgs> BreakoutStatusChanged;
+        event EventHandler<BORoom[]> BreakoutRoomListUpdated;
+        event EventHandler<BOOptionsInfo> BreakoutOptionsChanged;
+        /// <summary>This room's own breakout status (ErrorCode = BO_USER_STATUS, Message = joined room BID).</summary>
+        event EventHandler<SdkEventArgs> BreakoutUserStatusChanged;
+        /// <summary>Breakout timer tick (ErrorCode = remaining seconds).</summary>
+        event EventHandler<SdkEventArgs> BreakoutTimerTick;
+        event EventHandler<BOParticipantListEventArgs> BreakoutParticipantsUpdated;
         /// <summary>A participant asked to control this room's camera (ErrorCode = userId); answer with <see cref="RespondRemoteCameraControl"/>.</summary>
         event EventHandler<SdkEventArgs> FarEndCameraControlRequested;
         event EventHandler<MeetingRecordingInfoEventArgs> MeetingRecordingInfoChanged;

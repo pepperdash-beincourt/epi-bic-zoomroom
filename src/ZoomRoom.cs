@@ -1238,6 +1238,13 @@ namespace PepperDash.Essentials.Plugins
 		{
 			_sdkCanRecord = e.CanIRecord;
 			UpdateMeetingInfo(); // refreshes MeetingInfo.CanRecord on the bridge join
+			if (_sdkRecordingPaused != e.IsCloudRecordingPaused || _sdkRecordingConnecting != e.IsConnectingToCloud)
+			{
+				_sdkRecordingPaused = e.IsCloudRecordingPaused;
+				_sdkRecordingConnecting = e.IsConnectingToCloud;
+				this.LogDebug("Cloud recording: paused={Paused} connecting={Connecting}", _sdkRecordingPaused, _sdkRecordingConnecting);
+				RecordingExtrasChanged?.Invoke(this, EventArgs.Empty);
+			}
 		}
 
 		// A participant asked this room (the host) for permission to record. The SDK carries the
@@ -1320,6 +1327,7 @@ namespace PepperDash.Essentials.Plugins
 			RefreshCoHostFromParticipants();
 			RefreshRosterAdmissionFromParticipants();
 			UpdateFarEndCameras();
+			RefreshBreakoutRoster();
 		}
 
 		private void OnControllerHostChanged(object sender, SdkEventArgs e)
