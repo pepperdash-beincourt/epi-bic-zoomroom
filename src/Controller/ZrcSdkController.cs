@@ -289,6 +289,7 @@ namespace PepperDash.Essentials.Plugins
             _sdk.MuteOnEntry             += (s, e) => SafeRaise(() => MuteOnEntryChanged?.Invoke(this, e));
             _sdk.AllowAttendeesUnmuteChanged += (s, e) => SafeRaise(() => AllowAttendeesUnmuteChanged?.Invoke(this, e));
             _sdk.AllowAttendeesVideoChanged  += (s, e) => SafeRaise(() => AllowAttendeesVideoChanged?.Invoke(this, e));
+            _sdk.BOStatusChanged             += (s, e) => SafeRaise(() => BreakoutStatusChanged?.Invoke(this, e));
             _sdk.FarEndCameraControlRequest += (s, e) => SafeRaise(() => FarEndCameraControlRequested?.Invoke(this, e));
             _sdk.MeetingRecordingInfoChanged += (s, e) => SafeRaise(() => MeetingRecordingInfoChanged?.Invoke(this, e));
             _sdk.CameraPresetInfoChanged += (s, e) => SafeRaise(() => CameraPresetInfoChanged?.Invoke(this, e));
@@ -448,6 +449,11 @@ namespace PepperDash.Essentials.Plugins
         public bool RespondRemoteCameraControl(int userId, bool accept)       => Guard(nameof(RespondRemoteCameraControl)) && Rc(nameof(RespondRemoteCameraControl), _sdk.RespondRemoteCameraControl(userId, accept));
         public bool ResponseHostInviteToMainSession(bool accept)              => Guard(nameof(ResponseHostInviteToMainSession)) && Rc(nameof(ResponseHostInviteToMainSession), _sdk.ResponseHostInviteToMainSession(accept));
         public bool JoinBreakoutRoom()                                        => Guard(nameof(JoinBreakoutRoom)) && Rc(nameof(JoinBreakoutRoom), _sdk.JoinBreakoutRoom());
+        public bool StartBreakoutRooms()                                      => Guard(nameof(StartBreakoutRooms)) && Rc(nameof(StartBreakoutRooms), _sdk.StartBreakoutRooms());
+        public bool StopBreakoutRooms()                                       => Guard(nameof(StopBreakoutRooms)) && Rc(nameof(StopBreakoutRooms), _sdk.StopBreakoutRooms());
+        public bool BroadcastMessageToBreakoutRooms(string message)           => Guard(nameof(BroadcastMessageToBreakoutRooms)) && Rc(nameof(BroadcastMessageToBreakoutRooms), _sdk.BroadcastMessageToBreakoutRooms(message));
+        public bool LeaveBreakoutRoom()                                       => Guard(nameof(LeaveBreakoutRoom)) && Rc(nameof(LeaveBreakoutRoom), _sdk.LeaveBreakoutRoom());
+        public bool AskForHelpInBreakoutRoom()                                => Guard(nameof(AskForHelpInBreakoutRoom)) && Rc(nameof(AskForHelpInBreakoutRoom), _sdk.AskForHelpInBreakoutRoom());
         public bool SetSpeakerVolume(float volume)             => Guard(nameof(SetSpeakerVolume)) && Rc(nameof(SetSpeakerVolume), _sdk.SetSpeakerVolume(volume));
         public float GetSpeakerVolume()                        => _sdk.GetSpeakerVolume(out var v) ? v : -1f;
 
@@ -551,6 +557,7 @@ namespace PepperDash.Essentials.Plugins
         public event EventHandler<SdkEventArgs> MuteOnEntryChanged;
         public event EventHandler<SdkEventArgs> AllowAttendeesUnmuteChanged;
         public event EventHandler<SdkEventArgs> AllowAttendeesVideoChanged;
+        public event EventHandler<SdkEventArgs> BreakoutStatusChanged;
         public event EventHandler<SdkEventArgs> FarEndCameraControlRequested;
         public event EventHandler<MeetingRecordingInfoEventArgs> MeetingRecordingInfoChanged;
         public event EventHandler<CameraPresetInfoEventArgs> CameraPresetInfoChanged;

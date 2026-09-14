@@ -103,6 +103,11 @@ namespace PepperDash.Essentials.Plugins
         bool RespondRemoteCameraControl(int userId, bool accept);
         bool ResponseHostInviteToMainSession(bool accept);
         bool JoinBreakoutRoom();
+        bool StartBreakoutRooms();
+        bool StopBreakoutRooms();
+        bool BroadcastMessageToBreakoutRooms(string message);
+        bool LeaveBreakoutRoom();
+        bool AskForHelpInBreakoutRoom();
 
         /// <summary>Sets the room speaker (audio output) volume, in the SDK's native float scale.</summary>
         bool SetSpeakerVolume(float volume);
@@ -279,6 +284,8 @@ namespace PepperDash.Essentials.Plugins
         event EventHandler<SdkEventArgs> AllowAttendeesUnmuteChanged;
         /// <summary>Whether attendees may start video changed (ErrorCode 1 = allowed).</summary>
         event EventHandler<SdkEventArgs> AllowAttendeesVideoChanged;
+        /// <summary>Breakout session status changed (ErrorCode = BO_STATUS: 1 edit, 2 started, 3 stopping, 4 ended).</summary>
+        event EventHandler<SdkEventArgs> BreakoutStatusChanged;
         /// <summary>A participant asked to control this room's camera (ErrorCode = userId); answer with <see cref="RespondRemoteCameraControl"/>.</summary>
         event EventHandler<SdkEventArgs> FarEndCameraControlRequested;
         event EventHandler<MeetingRecordingInfoEventArgs> MeetingRecordingInfoChanged;
