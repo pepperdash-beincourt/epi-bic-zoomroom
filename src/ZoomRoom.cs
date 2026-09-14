@@ -1237,6 +1237,16 @@ namespace PepperDash.Essentials.Plugins
 		private void OnControllerMeetingRecordingInfoChanged(object sender, MeetingRecordingInfoEventArgs e)
 		{
 			_sdkCanRecord = e.CanIRecord;
+
+			// This notification is the authoritative recording state - the separate status event can
+			// only ever say "being recorded", while this one is pushed on every change including a stop.
+			if (_sdkIsRecording != e.IsMeetingBeingRecorded)
+			{
+				_sdkIsRecording = e.IsMeetingBeingRecorded;
+				this.LogInformation("Cloud recording: isRecording={IsRecording}", _sdkIsRecording);
+				MeetingIsRecordingFeedback.FireUpdate();
+			}
+
 			UpdateMeetingInfo(); // refreshes MeetingInfo.CanRecord on the bridge join
 			if (_sdkRecordingPaused != e.IsCloudRecordingPaused || _sdkRecordingConnecting != e.IsConnectingToCloud)
 			{
