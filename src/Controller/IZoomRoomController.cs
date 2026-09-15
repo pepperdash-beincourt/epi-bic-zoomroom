@@ -132,6 +132,10 @@ namespace PepperDash.Essentials.Plugins
         bool PromoteAttendeeToPanelist(int userId);
         bool DemotePanelistToAttendee(int userId);
         bool AllowWebinarAttendeeTalk(int userId, bool allow);
+        /// <summary>Asks for webinar attendees ("" = the first 100, otherwise a name search); answers on <see cref="WebinarAttendeeListReceived"/>.</summary>
+        bool ListWebinarAttendees(string keywords);
+        /// <summary>Whether the current meeting is a webinar; null when there is no meeting or the query failed.</summary>
+        bool? IsWebinarMeeting();
 
         /// <summary>Sets the room speaker (audio output) volume, in the SDK's native float scale.</summary>
         bool SetSpeakerVolume(float volume);
@@ -317,6 +321,10 @@ namespace PepperDash.Essentials.Plugins
         /// <summary>Breakout timer tick (ErrorCode = remaining seconds).</summary>
         event EventHandler<SdkEventArgs> BreakoutTimerTick;
         event EventHandler<BOParticipantListEventArgs> BreakoutParticipantsUpdated;
+        /// <summary>Webinar attendees - they are not part of the meeting roster.</summary>
+        event EventHandler<WebinarAttendeeListEventArgs> WebinarAttendeeListReceived;
+        /// <summary>Webinar head counts (attendees, raised hands, panelists; -1 = not in this notification).</summary>
+        event EventHandler<WebinarCountsEventArgs> WebinarCountsChanged;
         /// <summary>A participant asked to control this room's camera (ErrorCode = userId); answer with <see cref="RespondRemoteCameraControl"/>.</summary>
         event EventHandler<SdkEventArgs> FarEndCameraControlRequested;
         event EventHandler<MeetingRecordingInfoEventArgs> MeetingRecordingInfoChanged;

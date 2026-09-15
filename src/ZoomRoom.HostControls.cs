@@ -96,22 +96,30 @@ namespace PepperDash.Essentials.Plugins
 			_controller.AssignCohost(userId, assign);
 		}
 
+		// Promote / demote / allow to talk change the attendee list, so each asks for it again shortly
+		// (see ZoomRoom.Webinar.cs); on the SimulateWebinar fake list they act locally instead.
+
 		public void PromoteToPanelist(int userId)
 		{
 			this.LogInformation("PromoteToPanelist {UserId}", userId);
+			if (TrySimulatedAttendee(userId, "promote to panelist (leaves the fake list)", a => _simulatedAttendees.Remove(a))) return;
 			_controller.PromoteAttendeeToPanelist(userId);
+			ScheduleAttendeeRefresh();
 		}
 
 		public void DemoteToAttendee(int userId)
 		{
 			this.LogInformation("DemoteToAttendee {UserId}", userId);
 			_controller.DemotePanelistToAttendee(userId);
+			ScheduleAttendeeRefresh();
 		}
 
 		public void AllowAttendeeTalk(int userId, bool allow)
 		{
 			this.LogInformation("AllowAttendeeTalk {UserId} allow={Allow}", userId, allow);
+			if (TrySimulatedAttendee(userId, allow ? "allow to talk" : "disallow talk", a => a.CanTalk = allow)) return;
 			_controller.AllowWebinarAttendeeTalk(userId, allow);
+			ScheduleAttendeeRefresh();
 		}
 
 		// ── Cloud recording pause / resume ─────────────────────────────────────

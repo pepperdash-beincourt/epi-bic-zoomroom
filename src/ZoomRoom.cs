@@ -696,6 +696,7 @@ namespace PepperDash.Essentials.Plugins
 			controller.AddDeviceMessenger(new ZoomRoomPromptsMessenger($"{Key}-prompts-{controller.Key}", path, this));
 			controller.AddDeviceMessenger(new ZoomRoomHostControlsMessenger($"{Key}-hostControls-{controller.Key}", path, this));
 			controller.AddDeviceMessenger(new ZoomRoomBreakoutMessenger($"{Key}-breakout-{controller.Key}", path, this));
+			controller.AddDeviceMessenger(new ZoomRoomWebinarMessenger($"{Key}-webinar-{controller.Key}", path, this));
 			controller.AddDeviceMessenger(new IHasPresentationOnlyMeetingMessenger($"{Key}-presentationOnly-{controller.Key}", path, this));
 			controller.AddDeviceMessenger(new IHasCameraAutoModeMessenger($"{Key}-cameraAutoMode-{controller.Key}", path, this));
 			controller.AddDeviceMessenger(new IHasSelfviewPositionMessenger($"{Key}-selfviewPosition-{controller.Key}", path, this));
@@ -748,6 +749,7 @@ namespace PepperDash.Essentials.Plugins
 			SubscribePromptEvents();
 			SubscribeHostControlEvents();
 			SubscribeBreakoutEvents();
+			SubscribeWebinarEvents();
 			_controller.SharingStatusChanged += OnControllerSharingStatusChanged;
 			_controller.AirPlayStatusChanged += OnControllerAirPlayStatusChanged;
 			_controller.VideoPageStatusChanged += OnControllerVideoPageStatusChanged;
@@ -1026,6 +1028,9 @@ namespace PepperDash.Essentials.Plugins
 			_connectTimeSeedAdmissionTimer?.Stop();
 			_connectTimeSeedAdmissionTimer = null;
 
+			// Webinar or not decides whether the participants page offers Panelists | Attendees.
+			RefreshWebinar(requestAttendees: false);
+
 			var existing = ActiveCalls.FirstOrDefault();
 			if (existing != null && existing.Status != eCodecCallStatus.Connected)
 			{
@@ -1129,6 +1134,7 @@ namespace PepperDash.Essentials.Plugins
 			ClearPrompts("meeting reset");
 			ResetHostControls();
 			ResetBreakout();
+			ResetWebinar();
 			lock (_participantLock)
 			{
 				_pinnedUserScreens.Clear();
@@ -2773,7 +2779,10 @@ namespace PepperDash.Essentials.Plugins
 
 		public void RemoveParticipant(int userId)
 		{
+			if (TrySimulatedAttendee(userId, "remove", a => _simulatedAttendees.Remove(a))) return;
 			_controller.ExpelUser(userId);
+			// Removing a webinar attendee changes the attendee list the page shows.
+			ScheduleAttendeeRefresh();
 		}
 
 		public void SetParticipantAsHost(int userId)

@@ -296,6 +296,8 @@ namespace PepperDash.Essentials.Plugins
             _sdk.BOUserStatusChanged         += (s, e) => SafeRaise(() => BreakoutUserStatusChanged?.Invoke(this, e));
             _sdk.BOTimerTick                 += (s, e) => SafeRaise(() => BreakoutTimerTick?.Invoke(this, e));
             _sdk.BOParticipantsUpdated       += (s, e) => SafeRaise(() => BreakoutParticipantsUpdated?.Invoke(this, e));
+            _sdk.WebinarAttendeeListReceived += (s, e) => SafeRaise(() => WebinarAttendeeListReceived?.Invoke(this, e));
+            _sdk.WebinarCountsChanged        += (s, e) => SafeRaise(() => WebinarCountsChanged?.Invoke(this, e));
             _sdk.FarEndCameraControlRequest += (s, e) => SafeRaise(() => FarEndCameraControlRequested?.Invoke(this, e));
             _sdk.MeetingRecordingInfoChanged += (s, e) => SafeRaise(() => MeetingRecordingInfoChanged?.Invoke(this, e));
             _sdk.CameraPresetInfoChanged += (s, e) => SafeRaise(() => CameraPresetInfoChanged?.Invoke(this, e));
@@ -483,6 +485,13 @@ namespace PepperDash.Essentials.Plugins
         public bool PromoteAttendeeToPanelist(int userId)                     => Guard(nameof(PromoteAttendeeToPanelist)) && Rc(nameof(PromoteAttendeeToPanelist), _sdk.PromoteAttendeeToPanelist(userId));
         public bool DemotePanelistToAttendee(int userId)                      => Guard(nameof(DemotePanelistToAttendee)) && Rc(nameof(DemotePanelistToAttendee), _sdk.DemotePanelistToAttendee(userId));
         public bool AllowWebinarAttendeeTalk(int userId, bool allow)          => Guard(nameof(AllowWebinarAttendeeTalk)) && Rc(nameof(AllowWebinarAttendeeTalk), _sdk.AllowWebinarAttendeeTalk(userId, allow));
+        public bool ListWebinarAttendees(string keywords)                     => Guard(nameof(ListWebinarAttendees)) && Rc(nameof(ListWebinarAttendees), _sdk.ListWebinarAttendees(keywords ?? string.Empty));
+        public bool? IsWebinarMeeting()
+        {
+            if (!_isConnected) return null;
+            try { return _sdk.TryGetMeetingInfo(out var info) && info != null ? info.IsWebinar : (bool?)null; }
+            catch (Exception ex) { this.LogDebug("IsWebinarMeeting query failed: {Message}", ex.Message); return null; }
+        }
         public bool SetSpeakerVolume(float volume)             => Guard(nameof(SetSpeakerVolume)) && Rc(nameof(SetSpeakerVolume), _sdk.SetSpeakerVolume(volume));
         public float GetSpeakerVolume()                        => _sdk.GetSpeakerVolume(out var v) ? v : -1f;
 
@@ -592,6 +601,8 @@ namespace PepperDash.Essentials.Plugins
         public event EventHandler<SdkEventArgs> BreakoutUserStatusChanged;
         public event EventHandler<SdkEventArgs> BreakoutTimerTick;
         public event EventHandler<BOParticipantListEventArgs> BreakoutParticipantsUpdated;
+        public event EventHandler<WebinarAttendeeListEventArgs> WebinarAttendeeListReceived;
+        public event EventHandler<WebinarCountsEventArgs> WebinarCountsChanged;
         public event EventHandler<SdkEventArgs> FarEndCameraControlRequested;
         public event EventHandler<MeetingRecordingInfoEventArgs> MeetingRecordingInfoChanged;
         public event EventHandler<CameraPresetInfoEventArgs> CameraPresetInfoChanged;
