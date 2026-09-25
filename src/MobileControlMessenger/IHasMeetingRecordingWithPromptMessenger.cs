@@ -29,6 +29,8 @@ namespace PepperDash.Essentials.AppServer.Messengers
             AddAction("/startRecording", (id, content) => _codec.StartRecording());
             AddAction("/stopRecording", (id, content) => _codec.StopRecording());
             AddAction("/toggleRecording", (id, content) => _codec.ToggleRecording());
+            AddAction("/pauseRecording", (id, content) => _codec.PauseRecording());
+            AddAction("/resumeRecording", (id, content) => _codec.ResumeRecording());
             AddAction("/recordPromptAcknowledge", (id, content) =>
             {
                 var b = content?.ToObject<MobileControlSimpleContent<bool>>();
@@ -37,15 +39,32 @@ namespace PepperDash.Essentials.AppServer.Messengers
 
             _codec.MeetingIsRecordingFeedback.OutputChange += (s, e) =>
                 Task.Run(() => PostStatusMessage(new MeetingRecordingStateMessage { IsRecording = e.BoolValue }));
+            _codec.RecordingExtrasChanged += (s, e) =>
+                Task.Run(() => PostStatusMessage(new MeetingRecordingStateMessage
+                {
+                    IsRecordingPaused = _codec.IsRecordingPaused,
+                    IsRecordingConnecting = _codec.IsRecordingConnecting
+                }));
+            // The requester's name and type ride along with the visibility change so the app can name who is
+            // asking; they are blanked when the prompt closes.
             _codec.RecordConsentPromptIsVisible.OutputChange += (s, e) =>
-                Task.Run(() => PostStatusMessage(new MeetingRecordingStateMessage { RecordConsentPromptIsVisible = e.BoolValue }));
+                Task.Run(() => PostStatusMessage(new MeetingRecordingStateMessage
+                {
+                    RecordConsentPromptIsVisible = e.BoolValue,
+                    RecordingRequestSenderName = _codec.RecordingRequestSenderName,
+                    RecordingRequestType = _codec.RecordingRequestType
+                }));
         }
 
         private void SendFullStatus(string id = null) =>
             Task.Run(() => PostStatusMessage(new MeetingRecordingStateMessage
             {
                 IsRecording = _codec.MeetingIsRecordingFeedback.BoolValue,
-                RecordConsentPromptIsVisible = _codec.RecordConsentPromptIsVisible.BoolValue
+                IsRecordingPaused = _codec.IsRecordingPaused,
+                IsRecordingConnecting = _codec.IsRecordingConnecting,
+                RecordConsentPromptIsVisible = _codec.RecordConsentPromptIsVisible.BoolValue,
+                RecordingRequestSenderName = _codec.RecordingRequestSenderName,
+                RecordingRequestType = _codec.RecordingRequestType
             }, id));
     }
 
@@ -57,7 +76,21 @@ namespace PepperDash.Essentials.AppServer.Messengers
         [JsonProperty("isRecording", NullValueHandling = NullValueHandling.Ignore)]
         public bool? IsRecording { get; set; }
 
+        [JsonProperty("isRecordingPaused", NullValueHandling = NullValueHandling.Ignore)]
+        public bool? IsRecordingPaused { get; set; }
+
+        [JsonProperty("isRecordingConnecting", NullValueHandling = NullValueHandling.Ignore)]
+        public bool? IsRecordingConnecting { get; set; }
+
         [JsonProperty("recordConsentPromptIsVisible", NullValueHandling = NullValueHandling.Ignore)]
         public bool? RecordConsentPromptIsVisible { get; set; }
+
+        /// <summary>Who is asking to record (empty for a cloud recording request); only meaningful while the prompt is visible.</summary>
+        [JsonProperty("recordingRequestSenderName", NullValueHandling = NullValueHandling.Ignore)]
+        public string RecordingRequestSenderName { get; set; }
+
+        /// <summary>"local", "cloud" or "unknown".</summary>
+        [JsonProperty("recordingRequestType", NullValueHandling = NullValueHandling.Ignore)]
+        public string RecordingRequestType { get; set; }
     }
 }

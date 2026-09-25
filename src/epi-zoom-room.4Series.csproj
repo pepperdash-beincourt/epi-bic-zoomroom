@@ -4,7 +4,7 @@
     <ProjectType>ProgramLibrary</ProjectType>
     <TargetFramework>net8</TargetFramework>
     <RootNamespace>PepperDash.Essentials.Plugins</RootNamespace>
-    <AssemblyName>PepperDash.Essentials.Plugins.Zoom.Room</AssemblyName>
+    <AssemblyName>PepperDash.Essentials.Plugins.bic.zoomroom</AssemblyName>
     <Configurations>Debug;Release</Configurations>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <!-- CS0162: Unreachable code detected — emitted by the Crestron SDK's generated CPLZ-packaging temp file; not from plugin source. -->
@@ -22,11 +22,11 @@
   <ItemGroup>
     <PackageReference Include="Crestron.SimplSharp.SDK.ProgramLibrary" Version="2.21.128" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-    <PackageReference Include="PepperDash.ZoomRoom.Sdk" Version="1.1.0-feature-configurable-wrapper-path.29" GeneratePathProperty="true" />
+    <PackageReference Include="PepperDash.ZoomRoom.Sdk" Version="1.1.0-csv-zrc-sandbox.5" GeneratePathProperty="true" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="PepperDashEssentials" Version="3.0.0-dev-v3-routing.50">
+    <PackageReference Include="PepperDashEssentials" Version="3.0.0-fix-surface-masked-device-instantiation-errors.1">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
   </ItemGroup>

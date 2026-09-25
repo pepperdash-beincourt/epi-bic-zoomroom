@@ -46,6 +46,27 @@ namespace PepperDash.Essentials.AppServer.Messengers
                 var i = content?.ToObject<MobileControlSimpleContent<int>>();
                 if (i != null) _codec.SetParticipantAsHost(i.Value);
             });
+            // Roles (host / co-host): co-host on or off, webinar promote / demote / allow to talk.
+            AddAction("/setParticipantAsCoHost", (id, content) =>
+            {
+                var c = content?.ToObject<ParticipantRoleContent>();
+                if (c != null) _codec.SetParticipantAsCoHost(c.UserId, c.Value);
+            });
+            AddAction("/promoteToPanelist", (id, content) =>
+            {
+                var i = content?.ToObject<MobileControlSimpleContent<int>>();
+                if (i != null) _codec.PromoteToPanelist(i.Value);
+            });
+            AddAction("/demoteToAttendee", (id, content) =>
+            {
+                var i = content?.ToObject<MobileControlSimpleContent<int>>();
+                if (i != null) _codec.DemoteToAttendee(i.Value);
+            });
+            AddAction("/allowAttendeeTalk", (id, content) =>
+            {
+                var c = content?.ToObject<ParticipantRoleContent>();
+                if (c != null) _codec.AllowAttendeeTalk(c.UserId, c.Value);
+            });
             AddAction("/admitParticipantFromWaitingRoom", (id, content) =>
             {
                 var i = content?.ToObject<MobileControlSimpleContent<int>>();
@@ -93,5 +114,11 @@ namespace PepperDash.Essentials.AppServer.Messengers
 
         [JsonProperty("waitingRoom", NullValueHandling = NullValueHandling.Ignore)]
         public List<Participant> WaitingRoom { get; set; }
+    }
+
+    public class ParticipantRoleContent
+    {
+        [JsonProperty("userId")] public int UserId { get; set; }
+        [JsonProperty("value")] public bool Value { get; set; }
     }
 }

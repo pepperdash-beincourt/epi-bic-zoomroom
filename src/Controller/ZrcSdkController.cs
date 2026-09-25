@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -24,9 +25,19 @@ namespace PepperDash.Essentials.Plugins
         private string _pendingPassword;
         private CTimer _reconnectTimer;
         private int _reconnectAttempt;
-        private const int MaxReconnectAttempts = 10;
         private bool _isConnected;
         private static readonly int[] ReconnectDelaysMs = { 5000, 10000, 20000, 30000, 60000 };
+
+        // Health watchdog: the SDK's connection flag/events can go stale on a silent/half-open drop,
+        // but real command results stay truthful. Count consecutive command failures (while we still
+        // believe we're connected) and probe the link before declaring the room offline.
+        private const int CommandFailureStrikeThreshold = 2;
+        private int _consecutiveCommandFailures;
+        private bool _everConnected;
+        private bool _healthCheckRunning;
+        private readonly object _healthLock = new object();
+
+        public event EventHandler<bool> HealthStateChanged;
 
         public string Key { get; }
 
@@ -107,16 +118,20 @@ namespace PepperDash.Essentials.Plugins
                     return;
                 }
 
+                // Compare content, not just length: two wrapper builds can easily land on the same byte
+                // count, and a stale .so left in place would silently run the old native code.
                 if (File.Exists(targetPath) &&
-                    new FileInfo(targetPath).Length == resourceStream.Length)
+                    new FileInfo(targetPath).Length == resourceStream.Length &&
+                    SameContent(targetPath, resourceStream))
                 {
                     this.LogInformation(
-                        "Native wrapper already staged at '{Target}' (size matches) — skipping copy.",
+                        "Native wrapper already staged at '{Target}' (content matches) — skipping copy.",
                         targetPath);
                     ZrcSdk.SetLibraryPath(targetDir);
                     return;
                 }
 
+                resourceStream.Position = 0;
                 using (var fileStream = File.Create(targetPath))
                 {
                     resourceStream.CopyTo(fileStream);
@@ -217,15 +232,20 @@ namespace PepperDash.Essentials.Plugins
                 if (state == ConnectionState.Disconnected)
                 {
                     _isConnected = false;
+                    _consecutiveCommandFailures = 0;
                     // Disconnect mid-join: ExitMeeting won't fire, so clear any cached password here.
                     _pendingPassword = null;
+                    SafeRaise(() => HealthStateChanged?.Invoke(this, false));
                     ScheduleReconnect();
                 }
                 else if (state == ConnectionState.Connected || state == ConnectionState.Established)
                 {
                     _isConnected = true;
+                    _everConnected = true;
+                    _consecutiveCommandFailures = 0;
                     // Successfully reconnected — cancel any pending retry and reset the counter.
                     CancelReconnect();
+                    SafeRaise(() => HealthStateChanged?.Invoke(this, true));
                 }
                 SafeRaise(() => ConnectionStateChanged?.Invoke(this, e));
             };
@@ -260,10 +280,25 @@ namespace PepperDash.Essentials.Plugins
                 }
             };
             _sdk.MeetingInvite           += (s, e) => SafeRaise(() => MeetingInvite?.Invoke(this, e));
+            _sdk.MeetingInviteTreated    += (s, e) => SafeRaise(() => MeetingInviteTreated?.Invoke(this, e));
             _sdk.MeetingLockStatus       += (s, e) => SafeRaise(() => MeetingLockStatusChanged?.Invoke(this, e));
             _sdk.AudioStatus             += (s, e) => SafeRaise(() => AudioMuteStatusChanged?.Invoke(this, e));
             _sdk.RecordingStatus         += (s, e) => SafeRaise(() => RecordingStatusChanged?.Invoke(this, e));
             _sdk.RecordingRequest        += (s, e) => SafeRaise(() => RecordingRequestReceived?.Invoke(this, e));
+            _sdk.PromptReceived          += (s, e) => SafeRaise(() => PromptReceived?.Invoke(this, e));
+            _sdk.AskUnmuteByHost         += (s, e) => SafeRaise(() => AudioUnmuteRequested?.Invoke(this, e));
+            _sdk.MuteOnEntry             += (s, e) => SafeRaise(() => MuteOnEntryChanged?.Invoke(this, e));
+            _sdk.AllowAttendeesUnmuteChanged += (s, e) => SafeRaise(() => AllowAttendeesUnmuteChanged?.Invoke(this, e));
+            _sdk.AllowAttendeesVideoChanged  += (s, e) => SafeRaise(() => AllowAttendeesVideoChanged?.Invoke(this, e));
+            _sdk.BOStatusChanged             += (s, e) => SafeRaise(() => BreakoutStatusChanged?.Invoke(this, e));
+            _sdk.BORoomListUpdated           += (s, e) => SafeRaise(() => BreakoutRoomListUpdated?.Invoke(this, e));
+            _sdk.BOOptionsChanged            += (s, e) => SafeRaise(() => BreakoutOptionsChanged?.Invoke(this, e));
+            _sdk.BOUserStatusChanged         += (s, e) => SafeRaise(() => BreakoutUserStatusChanged?.Invoke(this, e));
+            _sdk.BOTimerTick                 += (s, e) => SafeRaise(() => BreakoutTimerTick?.Invoke(this, e));
+            _sdk.BOParticipantsUpdated       += (s, e) => SafeRaise(() => BreakoutParticipantsUpdated?.Invoke(this, e));
+            _sdk.WebinarAttendeeListReceived += (s, e) => SafeRaise(() => WebinarAttendeeListReceived?.Invoke(this, e));
+            _sdk.WebinarCountsChanged        += (s, e) => SafeRaise(() => WebinarCountsChanged?.Invoke(this, e));
+            _sdk.FarEndCameraControlRequest += (s, e) => SafeRaise(() => FarEndCameraControlRequested?.Invoke(this, e));
             _sdk.MeetingRecordingInfoChanged += (s, e) => SafeRaise(() => MeetingRecordingInfoChanged?.Invoke(this, e));
             _sdk.CameraPresetInfoChanged += (s, e) => SafeRaise(() => CameraPresetInfoChanged?.Invoke(this, e));
             _sdk.ParticipantsInitialized += (s, e) => SafeRaise(() => ParticipantsInitialized?.Invoke(this, e));
@@ -276,6 +311,9 @@ namespace PepperDash.Essentials.Plugins
             _sdk.AirPlayStatusChanged    += (s, e) => SafeRaise(() => AirPlayStatusChanged?.Invoke(this, e));
             _sdk.VideoPageStatusChanged  += (s, e) => SafeRaise(() => VideoPageStatusChanged?.Invoke(this, e));
             _sdk.ScreenLayoutStatusChanged += (s, e) => SafeRaise(() => ScreenLayoutStatusChanged?.Invoke(this, e));
+            _sdk.DynamicLayoutOptionChanged += (s, e) => SafeRaise(() => DynamicLayoutOptionChanged?.Invoke(this, e));
+            _sdk.LayoutDiagnostic += (s, e) => SafeRaise(() => LayoutDiagnostic?.Invoke(this, e));
+            _sdk.VideoThumbInfoChanged   += (s, e) => SafeRaise(() => VideoThumbInfoChanged?.Invoke(this, e));
             _sdk.SIPCallStatus           += (s, e) => SafeRaise(() => SipCallStatusChanged?.Invoke(this, e));
             _sdk.ControlSystemEnabled    += (s, e) => SafeRaise(() => ZrcsEnabledChanged?.Invoke(this, e));
             _sdk.ContactListChanged      += (s, e) => SafeRaise(() => ContactListChanged?.Invoke(this, e));
@@ -377,14 +415,14 @@ namespace PepperDash.Essentials.Plugins
         // means the C# call didn't throw, not that the SDK acted. Successes log at Debug.
         private int Rc(string op, int code)
         {
-            if (code != 0) this.LogWarning("SDK call {Op} returned error code {Code}", op, code);
-            else this.LogDebug("SDK call {Op} ok", op);
+            if (code != 0) { this.LogWarning("SDK call {Op} returned error code {Code}", op, code); NoteCommandResult(false); }
+            else { this.LogDebug("SDK call {Op} ok", op); NoteCommandResult(true); }
             return code;
         }
         private bool Rc(string op, bool ok)
         {
-            if (!ok) this.LogWarning("SDK call {Op} returned failure", op);
-            else this.LogDebug("SDK call {Op} ok", op);
+            if (!ok) { this.LogWarning("SDK call {Op} returned failure", op); NoteCommandResult(false); }
+            else { this.LogDebug("SDK call {Op} ok", op); NoteCommandResult(true); }
             return ok;
         }
 
@@ -406,12 +444,61 @@ namespace PepperDash.Essentials.Plugins
         public bool SetMuteOnEntry(bool mute)                  => Guard(nameof(SetMuteOnEntry)) && Rc(nameof(SetMuteOnEntry), _sdk.SetMuteOnEntry(mute));
         public bool AnswerUnmuteRequest(bool accepted)         => Guard(nameof(AnswerUnmuteRequest)) && Rc(nameof(AnswerUnmuteRequest), _sdk.AnswerUnmuteRequest(accepted));
         public bool AllowAttendeesUnmute(bool allow)           => Guard(nameof(AllowAttendeesUnmute)) && Rc(nameof(AllowAttendeesUnmute), _sdk.AllowAttendeesUnmute(allow));
+        public bool AllowAttendeesStartVideo(bool allow)       => Guard(nameof(AllowAttendeesStartVideo)) && Rc(nameof(AllowAttendeesStartVideo), _sdk.AllowAttendeesStartVideo(allow));
+
+        // ── In-call prompt answers ────────────────────────────────────────────
+        public bool ConfirmMeetingReminder(bool agree, int reminderType)      => Guard(nameof(ConfirmMeetingReminder)) && Rc(nameof(ConfirmMeetingReminder), _sdk.ConfirmMeetingReminder(agree, (MeetingReminderType)reminderType));
+        public bool ConfirmCustomizedMeetingReminder(bool agree, int type)    => Guard(nameof(ConfirmCustomizedMeetingReminder)) && Rc(nameof(ConfirmCustomizedMeetingReminder), _sdk.ConfirmCustomizedMeetingReminder(agree, type));
+        public bool ConfirmConsent(bool agree, int consentType, string id)    => Guard(nameof(ConfirmConsent)) && Rc(nameof(ConfirmConsent), _sdk.ConfirmConsent(agree, (ConsentType)consentType, id));
+        public bool ConfirmCombinedConsent(bool agree, long consentType)      => Guard(nameof(ConfirmCombinedConsent)) && Rc(nameof(ConfirmCombinedConsent), _sdk.ConfirmCombinedConsent(agree, consentType));
+        public bool HandlePrivacyAlert(int action, int type)                  => Guard(nameof(HandlePrivacyAlert)) && Rc(nameof(HandlePrivacyAlert), _sdk.HandlePrivacyAlert((PrivacyAlertAction)action, (PrivacyAlertType)type));
+        public bool ContinueMeetingOnInactivity()                             => Guard(nameof(ContinueMeetingOnInactivity)) && Rc(nameof(ContinueMeetingOnInactivity), _sdk.ContinueMeetingOnInactivity());
+        public bool AnswerHostRequestUnmuteVideo(bool accepted)               => Guard(nameof(AnswerHostRequestUnmuteVideo)) && Rc(nameof(AnswerHostRequestUnmuteVideo), _sdk.AnswerHostRequestUnmuteVideo(accepted));
+        public bool RespondRemoteCameraControl(int userId, bool accept)       => Guard(nameof(RespondRemoteCameraControl)) && Rc(nameof(RespondRemoteCameraControl), _sdk.RespondRemoteCameraControl(userId, accept));
+        public bool ResponseHostInviteToMainSession(bool accept)              => Guard(nameof(ResponseHostInviteToMainSession)) && Rc(nameof(ResponseHostInviteToMainSession), _sdk.ResponseHostInviteToMainSession(accept));
+        public bool JoinBreakoutRoom()                                        => Guard(nameof(JoinBreakoutRoom)) && Rc(nameof(JoinBreakoutRoom), _sdk.JoinBreakoutRoom());
+        public bool StartBreakoutRooms()                                      => Guard(nameof(StartBreakoutRooms)) && Rc(nameof(StartBreakoutRooms), _sdk.StartBreakoutRooms());
+        public bool StopBreakoutRooms()                                       => Guard(nameof(StopBreakoutRooms)) && Rc(nameof(StopBreakoutRooms), _sdk.StopBreakoutRooms());
+        public bool BroadcastMessageToBreakoutRooms(string message)           => Guard(nameof(BroadcastMessageToBreakoutRooms)) && Rc(nameof(BroadcastMessageToBreakoutRooms), _sdk.BroadcastMessageToBreakoutRooms(message));
+        public bool LeaveBreakoutRoom()                                       => Guard(nameof(LeaveBreakoutRoom)) && Rc(nameof(LeaveBreakoutRoom), _sdk.LeaveBreakoutRoom());
+        public bool AskForHelpInBreakoutRoom()                                => Guard(nameof(AskForHelpInBreakoutRoom)) && Rc(nameof(AskForHelpInBreakoutRoom), _sdk.AskForHelpInBreakoutRoom());
+
+        // ── Breakout rooms: creator / admin / data ────────────────────────────
+        public bool CreateBreakoutRooms(int count, int assignType)             => Guard(nameof(CreateBreakoutRooms)) && Rc(nameof(CreateBreakoutRooms), _sdk.CreateBreakoutRooms(count, (BOAssignType)assignType));
+        public bool AddBreakoutRoom()                                         => Guard(nameof(AddBreakoutRoom)) && Rc(nameof(AddBreakoutRoom), _sdk.AddBreakoutRoom());
+        public bool DeleteBreakoutRoom(string sessionBID)                     => Guard(nameof(DeleteBreakoutRoom)) && Rc(nameof(DeleteBreakoutRoom), _sdk.DeleteBreakoutRoom(sessionBID));
+        public bool RenameBreakoutRoom(string sessionBID, string newName)     => Guard(nameof(RenameBreakoutRoom)) && Rc(nameof(RenameBreakoutRoom), _sdk.RenameBreakoutRoom(sessionBID, newName));
+        public bool AssignUsersToBreakoutRoom(IEnumerable<string> g, string b) => Guard(nameof(AssignUsersToBreakoutRoom)) && Rc(nameof(AssignUsersToBreakoutRoom), _sdk.AssignUsersToBreakoutRoom(g, b));
+        public bool SetBOOptions(BOOptionsInfo options)                       => Guard(nameof(SetBOOptions)) && Rc(nameof(SetBOOptions), _sdk.SetBOOptions(options));
+        public bool RequestBOOptions()                                        => Guard(nameof(RequestBOOptions)) && Rc(nameof(RequestBOOptions), _sdk.RequestBOOptions());
+        public bool MoveUserToBreakoutRoom(string userGuid, string sessionBID) => Guard(nameof(MoveUserToBreakoutRoom)) && Rc(nameof(MoveUserToBreakoutRoom), _sdk.MoveUserToBreakoutRoom(userGuid, sessionBID));
+        public bool InviteBOUserReturnToMainSession(string userGuid)          => Guard(nameof(InviteBOUserReturnToMainSession)) && Rc(nameof(InviteBOUserReturnToMainSession), _sdk.InviteBOUserReturnToMainSession(userGuid));
+        public bool IgnoreBOHelpRequest(string userGuid)                      => Guard(nameof(IgnoreBOHelpRequest)) && Rc(nameof(IgnoreBOHelpRequest), _sdk.IgnoreBOHelpRequest(userGuid));
+        public bool JoinBreakoutRoomForHelp(string g, string b, string n)     => Guard(nameof(JoinBreakoutRoomForHelp)) && Rc(nameof(JoinBreakoutRoomForHelp), _sdk.JoinBreakoutRoomForHelp(g, b, n));
+        public bool JoinBreakoutRoomByBID(string sessionBID)                  => Guard(nameof(JoinBreakoutRoomByBID)) && Rc(nameof(JoinBreakoutRoomByBID), _sdk.JoinBreakoutRoomByBID(sessionBID));
+        public bool RequestBreakoutRoomList()                                 => Guard(nameof(RequestBreakoutRoomList)) && Rc(nameof(RequestBreakoutRoomList), _sdk.RequestBreakoutRoomList());
+        public bool RequestBreakoutRoomUserList()                             => Guard(nameof(RequestBreakoutRoomUserList)) && Rc(nameof(RequestBreakoutRoomUserList), _sdk.RequestBreakoutRoomUserList());
+
+        // ── Roles ─────────────────────────────────────────────────────────────
+        public bool ClaimHost(string hostKey)                                 => Guard(nameof(ClaimHost)) && Rc(nameof(ClaimHost), _sdk.ClaimHost(hostKey));
+        public bool AssignCohost(int userId, bool assign)                     => Guard(nameof(AssignCohost)) && Rc(nameof(AssignCohost), _sdk.AssignCohost(userId, assign));
+        public bool PromoteAttendeeToPanelist(int userId)                     => Guard(nameof(PromoteAttendeeToPanelist)) && Rc(nameof(PromoteAttendeeToPanelist), _sdk.PromoteAttendeeToPanelist(userId));
+        public bool DemotePanelistToAttendee(int userId)                      => Guard(nameof(DemotePanelistToAttendee)) && Rc(nameof(DemotePanelistToAttendee), _sdk.DemotePanelistToAttendee(userId));
+        public bool AllowWebinarAttendeeTalk(int userId, bool allow)          => Guard(nameof(AllowWebinarAttendeeTalk)) && Rc(nameof(AllowWebinarAttendeeTalk), _sdk.AllowWebinarAttendeeTalk(userId, allow));
+        public bool ListWebinarAttendees(string keywords)                     => Guard(nameof(ListWebinarAttendees)) && Rc(nameof(ListWebinarAttendees), _sdk.ListWebinarAttendees(keywords ?? string.Empty));
+        public bool? IsWebinarMeeting()
+        {
+            if (!_isConnected) return null;
+            try { return _sdk.TryGetMeetingInfo(out var info) && info != null ? info.IsWebinar : (bool?)null; }
+            catch (Exception ex) { this.LogDebug("IsWebinarMeeting query failed: {Message}", ex.Message); return null; }
+        }
         public bool SetSpeakerVolume(float volume)             => Guard(nameof(SetSpeakerVolume)) && Rc(nameof(SetSpeakerVolume), _sdk.SetSpeakerVolume(volume));
         public float GetSpeakerVolume()                        => _sdk.GetSpeakerVolume(out var v) ? v : -1f;
 
         // ── Video ─────────────────────────────────────────────────────────────
 
         public bool SetVideoState(bool start)                  => Guard(nameof(SetVideoState)) && Rc(nameof(SetVideoState), _sdk.SetVideoState(start));
+        public bool SetMyVideoHidden(bool hidden)              => Guard(nameof(SetMyVideoHidden)) && Rc(nameof(SetMyVideoHidden), _sdk.SetMyVideoHidden(hidden));
         public bool MuteUserVideo(int userId, bool mute)       => Guard(nameof(MuteUserVideo)) && Rc(nameof(MuteUserVideo), _sdk.MuteUserVideo(userId, mute));
         public bool PinUserOnScreen(int userId, int screenIndex = 0)    => Guard(nameof(PinUserOnScreen)) && Rc(nameof(PinUserOnScreen), _sdk.PinUserOnScreen(userId, screenIndex));
         public bool UnpinUserFromScreen(int userId, int screenIndex = 0) => Guard(nameof(UnpinUserFromScreen)) && Rc(nameof(UnpinUserFromScreen), _sdk.UnpinUserFromScreen(userId, screenIndex));
@@ -429,6 +516,7 @@ namespace PepperDash.Essentials.Plugins
 
         public int SetScreenLayout(int screen, int layoutSourceType) => Guard(nameof(SetScreenLayout)) ? Rc(nameof(SetScreenLayout), _sdk.SetScreenLayout(screen, layoutSourceType)) : -1;
         public int SetVideoOrder(int videoOrderType)                 => Guard(nameof(SetVideoOrder)) ? Rc(nameof(SetVideoOrder), _sdk.SetVideoOrder(videoOrderType)) : -1;
+        public int SetDynamicLayoutOption(int layout)                => Guard(nameof(SetDynamicLayoutOption)) ? Rc(nameof(SetDynamicLayoutOption), _sdk.SetDynamicLayoutOption(layout)) : -1;
         public int UpdateVideoLayoutStyle(int videoLayoutStyle)      => Guard(nameof(UpdateVideoLayoutStyle)) ? Rc(nameof(UpdateVideoLayoutStyle), _sdk.UpdateVideoLayoutStyle(videoLayoutStyle)) : -1;
         public int ControlVideoPosition(int position, int size)      => Guard(nameof(ControlVideoPosition)) ? Rc(nameof(ControlVideoPosition), _sdk.ControlVideoPosition(position, size)) : -1;
         public int TurnVideoPage(bool forward, int pageVideoType)    => Guard(nameof(TurnVideoPage)) ? Rc(nameof(TurnVideoPage), _sdk.TurnVideoPage(forward, pageVideoType)) : -1;
@@ -497,10 +585,25 @@ namespace PepperDash.Essentials.Plugins
         public event EventHandler<SdkEventArgs> ExitMeeting;
         public event EventHandler<SdkEventArgs> MeetingNeedsPassword;
         public event EventHandler<MeetingInviteEventArgs> MeetingInvite;
+        public event EventHandler<MeetingInviteTreatedEventArgs> MeetingInviteTreated;
         public event EventHandler<SdkEventArgs> MeetingLockStatusChanged;
         public event EventHandler<SdkEventArgs> AudioMuteStatusChanged;
         public event EventHandler<SdkEventArgs> RecordingStatusChanged;
         public event EventHandler<SdkEventArgs> RecordingRequestReceived;
+        public event EventHandler<PromptEventArgs> PromptReceived;
+        public event EventHandler<SdkEventArgs> AudioUnmuteRequested;
+        public event EventHandler<SdkEventArgs> MuteOnEntryChanged;
+        public event EventHandler<SdkEventArgs> AllowAttendeesUnmuteChanged;
+        public event EventHandler<SdkEventArgs> AllowAttendeesVideoChanged;
+        public event EventHandler<SdkEventArgs> BreakoutStatusChanged;
+        public event EventHandler<BORoom[]> BreakoutRoomListUpdated;
+        public event EventHandler<BOOptionsInfo> BreakoutOptionsChanged;
+        public event EventHandler<SdkEventArgs> BreakoutUserStatusChanged;
+        public event EventHandler<SdkEventArgs> BreakoutTimerTick;
+        public event EventHandler<BOParticipantListEventArgs> BreakoutParticipantsUpdated;
+        public event EventHandler<WebinarAttendeeListEventArgs> WebinarAttendeeListReceived;
+        public event EventHandler<WebinarCountsEventArgs> WebinarCountsChanged;
+        public event EventHandler<SdkEventArgs> FarEndCameraControlRequested;
         public event EventHandler<MeetingRecordingInfoEventArgs> MeetingRecordingInfoChanged;
         public event EventHandler<CameraPresetInfoEventArgs> CameraPresetInfoChanged;
         public event EventHandler<ParticipantListEventArgs> ParticipantsInitialized;
@@ -513,6 +616,9 @@ namespace PepperDash.Essentials.Plugins
         public event EventHandler<AirPlayStatusEventArgs> AirPlayStatusChanged;
         public event EventHandler<VideoPageStatusEventArgs> VideoPageStatusChanged;
         public event EventHandler<ScreenLayoutStatusEventArgs> ScreenLayoutStatusChanged;
+        public event EventHandler<SdkEventArgs> DynamicLayoutOptionChanged;
+        public event EventHandler<SdkEventArgs> LayoutDiagnostic;
+        public event EventHandler<VideoThumbInfoEventArgs> VideoThumbInfoChanged;
         public event EventHandler<SIPCall> SipCallStatusChanged;
         public event EventHandler<SdkEventArgs> ZrcsEnabledChanged;
         public event EventHandler<ContactListEventArgs> ContactListChanged;
@@ -540,22 +646,27 @@ namespace PepperDash.Essentials.Plugins
         private void ScheduleReconnect()
         {
             if (_disposed) return;
+            // A single self-perpetuating loop; extra triggers (SDK event, poll, command failures) no-op.
+            if (_reconnectTimer != null) return;
+            ScheduleNextReconnect();
+        }
+
+        private void ScheduleNextReconnect()
+        {
+            if (_disposed) return;
             if (!_sdk.CanRetryToPairLastRoom())
             {
                 this.LogWarning("Disconnected and no stored pairing credentials — cannot auto-reconnect.");
+                _reconnectTimer?.Dispose();
+                _reconnectTimer = null;
                 return;
             }
 
             _reconnectAttempt++;
-            if (_reconnectAttempt > MaxReconnectAttempts)
-            {
-                this.LogWarning("Auto-reconnect exceeded {Max} attempts — giving up. Use 'repairZoomRoom' to retry.", MaxReconnectAttempts);
-                return;
-            }
-
+            // Escalating backoff for the first few tries, then hold at the max delay indefinitely.
+            // Never give up: an unattended room must self-heal whenever it becomes reachable again.
             var delayMs = ReconnectDelaysMs[Math.Min(_reconnectAttempt - 1, ReconnectDelaysMs.Length - 1)];
-            this.LogInformation("Disconnected — scheduling reconnect attempt {Attempt}/{Max} in {Delay}ms",
-                _reconnectAttempt, MaxReconnectAttempts, delayMs);
+            this.LogInformation("Disconnected — reconnect attempt {Attempt} in {Delay}ms", _reconnectAttempt, delayMs);
 
             _reconnectTimer?.Dispose();
             _reconnectTimer = new CTimer(_ =>
@@ -563,6 +674,9 @@ namespace PepperDash.Essentials.Plugins
                 if (_disposed) return;
                 this.LogInformation("Auto-reconnect attempt {Attempt}: calling RetryToPairRoom()", _reconnectAttempt);
                 _sdk.RetryToPairRoom();
+                // A successful pair fires ConnectionStateChanged(Connected) -> CancelReconnect() stops
+                // this loop. If it didn't (silent failure), keep retrying at the capped delay.
+                if (!_disposed && !_isConnected) ScheduleNextReconnect();
             }, null, delayMs);
         }
 
@@ -572,5 +686,93 @@ namespace PepperDash.Essentials.Plugins
             _reconnectTimer?.Dispose();
             _reconnectTimer = null;
         }
-    }
+
+        // ── Health watchdog ─────────────────────────────────────────────────────
+
+        // Central choke point for every SDK command result (from the Rc helpers). While we believe
+        // we're connected, a run of failures is the signature of a silent/half-open drop, so probe.
+        private void NoteCommandResult(bool success)
+        {
+            if (_disposed) return;
+            if (success) { _consecutiveCommandFailures = 0; return; }
+
+            // Guard() blocks commands when we already know we're offline, so a failure reaching here
+            // means the SDK still reports connected — exactly the stale-state case we want to catch.
+            if (!_isConnected) return;
+
+            _consecutiveCommandFailures++;
+            if (_consecutiveCommandFailures >= CommandFailureStrikeThreshold)
+            {
+                this.LogWarning("{Count} consecutive SDK command failures while marked connected — running health check.", _consecutiveCommandFailures);
+                RunHealthCheck("consecutive command failures");
+            }
+        }
+
+        public void RunHealthCheck(string reason)
+        {
+            // Only guards an established pairing; before the first connect the pairing flow handles it.
+            if (_disposed || !_everConnected) return;
+
+            lock (_healthLock)
+            {
+                if (_healthCheckRunning) return;
+                _healthCheckRunning = true;
+            }
+
+            try
+            {
+                // Real round-trip probe: returns null when the link is actually dead, even if the SDK's
+                // connection flag is stale.
+                var alive = _sdk.GetMeetingStatus().HasValue;
+                if (alive)
+                {
+                    _consecutiveCommandFailures = 0;
+                    if (!_isConnected)
+                    {
+                        // Link recovered without an SDK event — restore online and let the reconnect
+                        // loop's RetryToPairRoom fire a real Connected event for full re-seed.
+                        this.LogInformation("Health probe succeeded while offline ({Reason}) — marking connected.", reason);
+                        _isConnected = true;
+                        SafeRaise(() => HealthStateChanged?.Invoke(this, true));
+                    }
+                    return;
+                }
+
+                this.LogWarning("Health probe failed ({Reason}) — link is down.", reason);
+                DeclareOffline(reason);
+            }
+            catch (Exception ex)
+            {
+                this.LogError(ex, "Exception during health check ({Reason}): {Message}", reason, ex.Message);
+                DeclareOffline(reason);
+            }
+            finally
+            {
+                lock (_healthLock) { _healthCheckRunning = false; }
+            }
+        }
+
+        private void DeclareOffline(string reason)
+        {
+            _consecutiveCommandFailures = 0;
+            if (_isConnected)
+            {
+                _isConnected = false;
+                this.LogWarning("Marking Zoom Room offline ({Reason}); starting auto-repair.", reason);
+                SafeRaise(() => HealthStateChanged?.Invoke(this, false));
+            }
+            ScheduleReconnect();
+        }
+            /// <summary>SHA-256 compare of a staged file against an embedded resource stream; leaves the stream at position 0.</summary>
+        private static bool SameContent(string path, Stream resource)
+        {
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            byte[] fileHash;
+            using (var f = File.OpenRead(path)) fileHash = sha.ComputeHash(f);
+            resource.Position = 0;
+            var resHash = sha.ComputeHash(resource);
+            resource.Position = 0;
+            return fileHash.AsSpan().SequenceEqual(resHash);
+        }
+}
 }

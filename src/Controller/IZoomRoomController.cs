@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using PepperDash.ZoomRoom.Sdk;
 using PepperDash.ZoomRoom.Sdk.EventArgs;
 
@@ -18,6 +19,20 @@ namespace PepperDash.Essentials.Plugins
 
         /// <summary>Returns the current connection state (0=Established, 1=Connected, 2=Disconnected).</summary>
         int GetConnectionState();
+
+        /// <summary>
+        /// Raised with the watchdog's assessment of whether the room is actually reachable (true=online).
+        /// Distinct from <see cref="ConnectionStateChanged"/>: it fires on silent/half-open drops the SDK
+        /// never reports, so devcomm can be corrected and auto-repair triggered.
+        /// </summary>
+        event EventHandler<bool> HealthStateChanged;
+
+        /// <summary>
+        /// Actively probes the link (real SDK round-trip). If the room is unreachable it marks the
+        /// controller offline and starts auto-repair; if a prior offline was a false alarm it clears it.
+        /// Safe to call periodically (comms-monitor poll) or on demand (after command failures).
+        /// </summary>
+        void RunHealthCheck(string reason);
 
         /// <summary>
         /// Synchronously queries the current meeting status. Unlike <see cref="MeetingStatusChanged"/>,
@@ -73,6 +88,54 @@ namespace PepperDash.Essentials.Plugins
         bool SetMuteOnEntry(bool mute);
         bool AnswerUnmuteRequest(bool accepted);
         bool AllowAttendeesUnmute(bool allow);
+        bool AllowAttendeesStartVideo(bool allow);
+
+        // ── In-call prompt answers (see ZoomRoom.Prompts.cs) ─────────────────
+        /// <summary>Answers a meeting reminder (native MeetingReminderType value).</summary>
+        bool ConfirmMeetingReminder(bool agree, int reminderType);
+        bool ConfirmCustomizedMeetingReminder(bool agree, int customizedType);
+        /// <summary>Answers a consent (native ConsentType value; consentId for the Common type).</summary>
+        bool ConfirmConsent(bool agree, int consentType, string consentId);
+        bool ConfirmCombinedConsent(bool agree, long consentType);
+        /// <summary>Native PrivacyAlertAction / PrivacyAlertType values.</summary>
+        bool HandlePrivacyAlert(int action, int type);
+        bool ContinueMeetingOnInactivity();
+        bool AnswerHostRequestUnmuteVideo(bool accepted);
+        bool RespondRemoteCameraControl(int userId, bool accept);
+        bool ResponseHostInviteToMainSession(bool accept);
+        bool JoinBreakoutRoom();
+        bool StartBreakoutRooms();
+        bool StopBreakoutRooms();
+        bool BroadcastMessageToBreakoutRooms(string message);
+        bool LeaveBreakoutRoom();
+        bool AskForHelpInBreakoutRoom();
+
+        // ── Breakout rooms: creator / admin / data ────────────────────────────
+        bool CreateBreakoutRooms(int count, int assignType);
+        bool AddBreakoutRoom();
+        bool DeleteBreakoutRoom(string sessionBID);
+        bool RenameBreakoutRoom(string sessionBID, string newName);
+        bool AssignUsersToBreakoutRoom(IEnumerable<string> userGuids, string sessionBID);
+        bool SetBOOptions(BOOptionsInfo options);
+        bool RequestBOOptions();
+        bool MoveUserToBreakoutRoom(string userGuid, string sessionBID);
+        bool InviteBOUserReturnToMainSession(string userGuid);
+        bool IgnoreBOHelpRequest(string userGuid);
+        bool JoinBreakoutRoomForHelp(string userGuid, string sessionBID, string sessionName);
+        bool JoinBreakoutRoomByBID(string sessionBID);
+        bool RequestBreakoutRoomList();
+        bool RequestBreakoutRoomUserList();
+
+        // ── Roles ─────────────────────────────────────────────────────────────
+        bool ClaimHost(string hostKey);
+        bool AssignCohost(int userId, bool assign);
+        bool PromoteAttendeeToPanelist(int userId);
+        bool DemotePanelistToAttendee(int userId);
+        bool AllowWebinarAttendeeTalk(int userId, bool allow);
+        /// <summary>Asks for webinar attendees ("" = the first 100, otherwise a name search); answers on <see cref="WebinarAttendeeListReceived"/>.</summary>
+        bool ListWebinarAttendees(string keywords);
+        /// <summary>Whether the current meeting is a webinar; null when there is no meeting or the query failed.</summary>
+        bool? IsWebinarMeeting();
 
         /// <summary>Sets the room speaker (audio output) volume, in the SDK's native float scale.</summary>
         bool SetSpeakerVolume(float volume);
@@ -83,6 +146,10 @@ namespace PepperDash.Essentials.Plugins
         // ── Video ─────────────────────────────────────────────────────────────
 
         bool SetVideoState(bool start);
+
+        /// <summary>Hides or shows the room's own self video locally (does not stop video to the far end).</summary>
+        bool SetMyVideoHidden(bool hidden);
+
         bool MuteUserVideo(int userId, bool mute);
         bool PinUserOnScreen(int userId, int screenIndex = 0);
         bool UnpinUserFromScreen(int userId, int screenIndex = 0);
@@ -116,6 +183,9 @@ namespace PepperDash.Essentials.Plugins
 
         int SetScreenLayout(int screen, int layoutSourceType);
         int SetVideoOrder(int videoOrderType);
+
+        /// <summary>Sets the dynamic-layout sub-option within Dynamic View (DynamicLayoutType: SpeakersOnBottom=0/Middle=1/Top=2). On single-screen rooms this distinguishes Dynamic Gallery from Multi-Speaker.</summary>
+        int SetDynamicLayoutOption(int layout);
 
         /// <summary>Sets the meeting video layout style (VideoLayoutStyle: Gallery=1, Speaker=2, Thumbnail=3, ContentOnly=4, DynamicLayout=6). Distinct from SetVideoOrder, which only reorders tiles.</summary>
         int UpdateVideoLayoutStyle(int videoLayoutStyle);
@@ -226,10 +296,37 @@ namespace PepperDash.Essentials.Plugins
         event EventHandler<SdkEventArgs> ExitMeeting;
         event EventHandler<SdkEventArgs> MeetingNeedsPassword;
         event EventHandler<MeetingInviteEventArgs> MeetingInvite;
+        /// <summary>Fires when a pending meeting invite is resolved -- answered here, answered elsewhere, declined, or expired/cancelled by the caller.</summary>
+        event EventHandler<MeetingInviteTreatedEventArgs> MeetingInviteTreated;
         event EventHandler<SdkEventArgs> MeetingLockStatusChanged;
         event EventHandler<SdkEventArgs> AudioMuteStatusChanged;
         event EventHandler<SdkEventArgs> RecordingStatusChanged;
         event EventHandler<SdkEventArgs> RecordingRequestReceived;
+        /// <summary>Dialog-style notification from the SDK (reminder, consent, request, invite, role change).</summary>
+        event EventHandler<PromptEventArgs> PromptReceived;
+        /// <summary>The host asked this room to unmute its audio; answer with <see cref="AnswerUnmuteRequest"/>.</summary>
+        event EventHandler<SdkEventArgs> AudioUnmuteRequested;
+        /// <summary>Mute-on-entry setting changed (ErrorCode 1 = on).</summary>
+        event EventHandler<SdkEventArgs> MuteOnEntryChanged;
+        /// <summary>Whether attendees may unmute themselves changed (ErrorCode 1 = allowed).</summary>
+        event EventHandler<SdkEventArgs> AllowAttendeesUnmuteChanged;
+        /// <summary>Whether attendees may start video changed (ErrorCode 1 = allowed).</summary>
+        event EventHandler<SdkEventArgs> AllowAttendeesVideoChanged;
+        /// <summary>Breakout session status changed (ErrorCode = BO_STATUS: 1 edit, 2 started, 3 stopping, 4 ended).</summary>
+        event EventHandler<SdkEventArgs> BreakoutStatusChanged;
+        event EventHandler<BORoom[]> BreakoutRoomListUpdated;
+        event EventHandler<BOOptionsInfo> BreakoutOptionsChanged;
+        /// <summary>This room's own breakout status (ErrorCode = BO_USER_STATUS, Message = joined room BID).</summary>
+        event EventHandler<SdkEventArgs> BreakoutUserStatusChanged;
+        /// <summary>Breakout timer tick (ErrorCode = remaining seconds).</summary>
+        event EventHandler<SdkEventArgs> BreakoutTimerTick;
+        event EventHandler<BOParticipantListEventArgs> BreakoutParticipantsUpdated;
+        /// <summary>Webinar attendees - they are not part of the meeting roster.</summary>
+        event EventHandler<WebinarAttendeeListEventArgs> WebinarAttendeeListReceived;
+        /// <summary>Webinar head counts (attendees, raised hands, panelists; -1 = not in this notification).</summary>
+        event EventHandler<WebinarCountsEventArgs> WebinarCountsChanged;
+        /// <summary>A participant asked to control this room's camera (ErrorCode = userId); answer with <see cref="RespondRemoteCameraControl"/>.</summary>
+        event EventHandler<SdkEventArgs> FarEndCameraControlRequested;
         event EventHandler<MeetingRecordingInfoEventArgs> MeetingRecordingInfoChanged;
         event EventHandler<CameraPresetInfoEventArgs> CameraPresetInfoChanged;
         event EventHandler<ParticipantListEventArgs> ParticipantsInitialized;
@@ -242,6 +339,9 @@ namespace PepperDash.Essentials.Plugins
         event EventHandler<AirPlayStatusEventArgs> AirPlayStatusChanged;
         event EventHandler<VideoPageStatusEventArgs> VideoPageStatusChanged;
         event EventHandler<ScreenLayoutStatusEventArgs> ScreenLayoutStatusChanged;
+        event EventHandler<SdkEventArgs> DynamicLayoutOptionChanged;
+        event EventHandler<SdkEventArgs> LayoutDiagnostic;
+        event EventHandler<VideoThumbInfoEventArgs> VideoThumbInfoChanged;
         event EventHandler<SIPCall> SipCallStatusChanged;
         event EventHandler<SdkEventArgs> ZrcsEnabledChanged;
         event EventHandler<ContactListEventArgs> ContactListChanged;
