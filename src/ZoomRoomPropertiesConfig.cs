@@ -70,6 +70,25 @@ namespace PepperDash.Essentials.Plugins
         [JsonProperty("sdkConfigPath")]
         public string SdkConfigPath { get; set; } = "/user/zrcsdk";
 
+        /// <summary>
+        /// Identifies this Zoom Room to the ZRC SDK when one program controls more than one Zoom Room.
+        /// Pairing is stored per ID, and the ID is shown as the controller's serial number in the Zoom
+        /// web portal. Leave unset for a single Zoom Room: that uses the SDK's default ID, which is
+        /// what an existing pairing was stored under. With several Zoom Room devices each needs its
+        /// own ID, so at most one of them may leave this unset; a repeated ID fails to initialize.
+        /// </summary>
+        [JsonProperty("sdkRoomId")]
+        public string SdkRoomId { get; set; }
+
+        /// <summary>
+        /// Names of directory contacts this room must not reach. A contact whose name matches (case
+        /// and surrounding spaces ignored) is left out of the directory, is never invited, and is
+        /// declined automatically if it invites this room. Used for the other Zoom Rooms serving the
+        /// same space, which must never share a meeting with this one.
+        /// </summary>
+        [JsonProperty("hiddenContactNames")]
+        public System.Collections.Generic.List<string> HiddenContactNames { get; set; }
+
         // communicationMonitorProperties is kept for back-compat but is no longer used —
         // the SDK is event-driven and requires no polling.
     }

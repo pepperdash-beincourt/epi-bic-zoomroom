@@ -148,12 +148,22 @@ namespace PepperDash.Essentials.Plugins
 
 		private readonly ZoomRoomPropertiesConfig _props;
 
+		// Contact names from hiddenContactNames: kept out of the directory, never invited, and
+		// declined automatically when they invite this room.
+		private readonly HashSet<string> _hiddenContactNames;
+
 		public ZoomRoom(DeviceConfig config, IZoomRoomController controller, ZoomRoomPropertiesConfig props)
 			: base(config)
 		{
 			DefaultMeetingDurationMin = 30;
 
 			_props = props;
+
+			_hiddenContactNames = new HashSet<string>(
+				(props.HiddenContactNames ?? new List<string>())
+					.Where(n => !string.IsNullOrWhiteSpace(n))
+					.Select(n => n.Trim()),
+				StringComparer.OrdinalIgnoreCase);
 
 			_controller = controller;
 
@@ -640,26 +650,72 @@ namespace PepperDash.Essentials.Plugins
 		/// <returns></returns>
 		protected override bool CustomActivate()
 		{
-			CrestronConsole.AddNewConsoleCommand(
-				s => { if (!string.IsNullOrWhiteSpace(s)) _controller.PairWithActivationCode(s.Trim()); },
-				"pairZoomRoom", "Pair Zoom Room with activation code", ConsoleAccessLevelEnum.AccessOperator);
-
-			CrestronConsole.AddNewConsoleCommand(
-				s => _controller.RetryPair(),
-				"repairZoomRoom", "Reconnect to last paired Zoom Room", ConsoleAccessLevelEnum.AccessOperator);
-
-			CrestronConsole.AddNewConsoleCommand(
-				s => _controller.Unpair(),
-				"unpairZoomRoom", "Unpair from Zoom Room", ConsoleAccessLevelEnum.AccessOperator);
-
-			CrestronConsole.AddNewConsoleCommand(
-				s => _controller.RepairWithConfiguredCode(),
-				"forceRepairZoom", "Clear stored credentials and re-pair using the configured activation code", ConsoleAccessLevelEnum.AccessOperator);
+			RegisterPairingConsoleCommands(this);
 
 			// Starts the liveness-poll watchdog that keeps devcomm honest and auto-repairs silent drops.
 			CommunicationMonitor.Start();
 
 			return base.CustomActivate();
+		}
+
+		// The pairing console commands are registered once per program and shared by every Zoom Room
+		// device. With one device they take the same arguments as before; with several, the device key
+		// comes first (e.g. "pairZoomRoom zoomRoom-2 1234-5678-9012-3456").
+		private static readonly object PairingCommandLock = new object();
+		private static readonly List<ZoomRoom> PairingCommandRooms = new List<ZoomRoom>();
+
+		private static void RegisterPairingConsoleCommands(ZoomRoom room)
+		{
+			lock (PairingCommandLock)
+			{
+				PairingCommandRooms.Add(room);
+				if (PairingCommandRooms.Count > 1) return;
+			}
+
+			CrestronConsole.AddNewConsoleCommand(
+				s => ForPairingTarget(s, (r, arg) => { if (arg.Length > 0) r._controller.PairWithActivationCode(arg); }),
+				"pairZoomRoom", "Pair Zoom Room with activation code: [deviceKey] <code>", ConsoleAccessLevelEnum.AccessOperator);
+
+			CrestronConsole.AddNewConsoleCommand(
+				s => ForPairingTarget(s, (r, arg) => r._controller.RetryPair()),
+				"repairZoomRoom", "Reconnect to last paired Zoom Room: [deviceKey]", ConsoleAccessLevelEnum.AccessOperator);
+
+			CrestronConsole.AddNewConsoleCommand(
+				s => ForPairingTarget(s, (r, arg) => r._controller.Unpair()),
+				"unpairZoomRoom", "Unpair from Zoom Room: [deviceKey]", ConsoleAccessLevelEnum.AccessOperator);
+
+			CrestronConsole.AddNewConsoleCommand(
+				s => ForPairingTarget(s, (r, arg) => r._controller.RepairWithConfiguredCode()),
+				"forceRepairZoom", "Clear stored credentials and re-pair using the configured activation code: [deviceKey]", ConsoleAccessLevelEnum.AccessOperator);
+		}
+
+		// Picks the Zoom Room a pairing command is for and runs it with the rest of the arguments. A
+		// leading device key selects that device; without one the command applies to the only device.
+		private static void ForPairingTarget(string args, Action<ZoomRoom, string> command)
+		{
+			var text = (args ?? string.Empty).Trim();
+			var firstSpace = text.IndexOf(' ');
+			var firstWord = firstSpace < 0 ? text : text.Substring(0, firstSpace);
+
+			ZoomRoom target;
+			List<string> keys;
+			lock (PairingCommandLock)
+			{
+				keys = PairingCommandRooms.Select(r => r.Key).ToList();
+				target = PairingCommandRooms.FirstOrDefault(r => r.Key.Equals(firstWord, StringComparison.OrdinalIgnoreCase));
+				if (target != null)
+					text = firstSpace < 0 ? string.Empty : text.Substring(firstSpace + 1).Trim();
+				else if (PairingCommandRooms.Count == 1)
+					target = PairingCommandRooms[0];
+			}
+
+			if (target == null)
+			{
+				CrestronConsole.ConsoleCommandResponse("Several Zoom Rooms are configured - put the device key first: {0}\r\n", string.Join(", ", keys));
+				return;
+			}
+
+			command(target, text);
 		}
 
 		/// <summary>
@@ -1163,6 +1219,13 @@ namespace PepperDash.Essentials.Plugins
 			var caller = string.IsNullOrEmpty(e.CallerName) ? "Incoming meeting invite" : e.CallerName;
 			this.LogInformation("MeetingInvite received from \"{Caller}\" meetingNumber={MeetingNumber} meetingId={MeetingId} contactId={ContactId}",
 				caller, e.MeetingNumber, e.MeetingId, e.CallerContactId);
+
+			if (IsHiddenContactName(e.CallerName) || IsHiddenContactId(e.CallerContactId))
+			{
+				this.LogWarning("Declining meeting invite from hidden contact \"{Caller}\"", caller);
+				_controller.AnswerMeetingInvite(false);
+				return;
+			}
 
 			if (_pendingInviteCall != null) return; // already ringing
 
@@ -2167,6 +2230,12 @@ namespace PepperDash.Essentials.Plugins
 				return;
 			}
 
+			if (IsHiddenContactId(ic.ContactId))
+			{
+				this.LogWarning("Dial(IInvitableContact): {ContactId} is a hidden contact — not invited", ic.ContactId);
+				return;
+			}
+
 			var contactIds = new[] { ic.ContactId };
 			if (IsInCall)
 			{
@@ -2215,14 +2284,48 @@ namespace PepperDash.Essentials.Plugins
 			_controller.InviteAttendees(contactIds);
 		}
 
-		// Extracts the non-empty contact IDs from a list of invitable contacts.
-		private static string[] GetContactIds(List<InvitableDirectoryContact> contacts)
+		// Extracts the non-empty contact IDs from a list of invitable contacts, leaving out hidden ones.
+		private string[] GetContactIds(List<InvitableDirectoryContact> contacts)
 		{
 			if (contacts == null) return Array.Empty<string>();
 			return contacts
 				.Where(c => c != null && !string.IsNullOrEmpty(c.ContactId))
 				.Select(c => c.ContactId)
+				.Where(id =>
+				{
+					if (!IsHiddenContactId(id)) return true;
+					this.LogWarning("{ContactId} is a hidden contact — not invited", id);
+					return false;
+				})
 				.ToArray();
+		}
+
+		// The name a contact is listed under: its screen name, else first + last name.
+		private static string ContactDisplayName(ContactInfo c)
+		{
+			return !string.IsNullOrEmpty(c.ScreenName)
+				? c.ScreenName
+				: string.Join(" ", new[] { c.FirstName, c.LastName }.Where(s => !string.IsNullOrEmpty(s)));
+		}
+
+		private bool IsHiddenContactName(string name)
+		{
+			return _hiddenContactNames.Count > 0
+				&& !string.IsNullOrWhiteSpace(name)
+				&& _hiddenContactNames.Contains(name.Trim());
+		}
+
+		// Resolves a contact ID against the downloaded directory; an ID that is not in it is not hidden.
+		private bool IsHiddenContactId(string contactId)
+		{
+			if (_hiddenContactNames.Count == 0 || string.IsNullOrEmpty(contactId)) return false;
+
+			ContactInfo contact;
+			lock (_directoryLock)
+			{
+				if (!_directoryContactsById.TryGetValue(contactId, out contact)) return false;
+			}
+			return IsHiddenContactName(ContactDisplayName(contact));
 		}
 
 		/// <summary>
@@ -2271,6 +2374,12 @@ namespace PepperDash.Essentials.Plugins
 			lock (_directoryLock) known = _directoryContactsById.ContainsKey(contactId);
 			if (!known)
 				this.LogWarning("InviteContactById: {ContactId} not in the downloaded directory — sending anyway", contactId);
+
+			if (IsHiddenContactId(contactId))
+			{
+				this.LogWarning("InviteContactById: {ContactId} is a hidden contact — not invited", contactId);
+				return;
+			}
 
 			var ids = new[] { contactId };
 			if (IsInCall)
@@ -2447,9 +2556,12 @@ namespace PepperDash.Essentials.Plugins
 			{
 				var directory = new CodecDirectory { ResultsFolderId = "root" };
 				directory.AddContactsToDirectory(
-					_directoryContactsById.Values.Select(c => (DirectoryItem)MapDirectoryContact(c)).ToList());
+					_directoryContactsById.Values
+						.Where(c => !IsHiddenContactName(ContactDisplayName(c)))
+						.Select(c => (DirectoryItem)MapDirectoryContact(c)).ToList());
 
-				this.LogDebug("Phonebook sync settled: {Total} total contact(s)", directory.Contacts.Count);
+				this.LogDebug("Phonebook sync settled: {Total} total contact(s), {Hidden} hidden",
+					directory.Contacts.Count, _directoryContactsById.Count - directory.Contacts.Count);
 
 				DirectoryRoot = directory;
 
@@ -2468,9 +2580,7 @@ namespace PepperDash.Essentials.Plugins
 		// Maps a single SDK contact to an Essentials invitable directory contact (flat, parented to root).
 		private static InvitableDirectoryContact MapDirectoryContact(ContactInfo c)
 		{
-			var name = !string.IsNullOrEmpty(c.ScreenName)
-				? c.ScreenName
-				: string.Join(" ", new[] { c.FirstName, c.LastName }.Where(s => !string.IsNullOrEmpty(s)));
+			var name = ContactDisplayName(c);
 
 			var contact = new InvitableDirectoryContact
 			{

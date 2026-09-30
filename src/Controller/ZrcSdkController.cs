@@ -20,6 +20,8 @@ namespace PepperDash.Essentials.Plugins
         private readonly ZrcSdk _sdk;
         private readonly string _sdkConfigPath;
         private readonly string _activationCode;
+        // Null = the SDK's default room ID (a single Zoom Room); set when several rooms share the SDK.
+        private readonly string _roomId;
         private bool _disposed;
         private bool _initialized;
         private string _pendingPassword;
@@ -41,11 +43,12 @@ namespace PepperDash.Essentials.Plugins
 
         public string Key { get; }
 
-        public ZrcSdkController(string key, string sdkConfigPath, string activationCode)
+        public ZrcSdkController(string key, string sdkConfigPath, string activationCode, string roomId = null)
         {
             Key = key;
             _sdkConfigPath  = sdkConfigPath  ?? "/user/zrcsdk";
             _activationCode = activationCode ?? string.Empty;
+            _roomId         = string.IsNullOrWhiteSpace(roomId) ? null : roomId.Trim();
 
             // The ZRC SDK loads its native wrapper (libzrcsdkwrapperpdt.so) from /usr/lib by
             // default, but /usr/lib is a read-only filesystem at program runtime. The wrapper is
@@ -320,8 +323,15 @@ namespace PepperDash.Essentials.Plugins
             _sdk.MeetingListChanged      += (s, e) => SafeRaise(() => MeetingListChanged?.Invoke(this, e));
 
             var effectivePath = string.IsNullOrEmpty(configPath) ? _sdkConfigPath : configPath;
-            var result = _sdk.Initialize(effectivePath);
-            this.LogInformation("ZrcSdk.Initialize({ConfigPath}) = {Result}", effectivePath, result);
+            var result = _sdk.Initialize(effectivePath, _roomId);
+            this.LogInformation("ZrcSdk.Initialize({ConfigPath}, roomId={RoomId}) = {Result}", effectivePath, _roomId ?? "(default)", result);
+            if (!result)
+            {
+                // The usual cause with several Zoom Rooms: two devices on the same room ID (or both
+                // on the default). Without its own ID this device cannot control a room.
+                this.LogError("ZRC SDK did not initialize for room ID {RoomId}. Each Zoom Room device needs its own sdkRoomId; at most one may leave it unset.", _roomId ?? "(default)");
+                return false;
+            }
 
             // Auto-reconnect or pair with activation code
             if (_sdk.CanRetryToPairLastRoom())

@@ -43,6 +43,8 @@ public class ConfigDeserializationTests
     [InlineData("minutesBeforeMeetingStart")]
     [InlineData("activationCode")]
     [InlineData("sdkConfigPath")]
+    [InlineData("sdkRoomId")]
+    [InlineData("hiddenContactNames")]
     public void ZoomRoomPropertiesConfig_Property_Has_JsonPropertyAttribute(string jsonName)
     {
         var hasAttribute = PropertiesConfigType

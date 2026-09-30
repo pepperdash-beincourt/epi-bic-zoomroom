@@ -31,7 +31,8 @@ namespace PepperDash.Essentials.Plugins
             var controller = new ZrcSdkController(
                 dc.Key + "-zrc",
                 props.SdkConfigPath,
-                props.ActivationCode);
+                props.ActivationCode,
+                props.SdkRoomId);
 
             try
             {

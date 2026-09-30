@@ -96,6 +96,15 @@
           "type": "string",
           "default": "/user/zrcsdk",
           "description": "Path passed to ZrcSdk.Initialize()."
+        },
+        "sdkRoomId": {
+          "type": "string",
+          "description": "Identifies this Zoom Room to the ZRC SDK when one program controls more than one Zoom Room. Pairing is stored per ID, and the ID is shown as the controller's serial number in the Zoom web portal. Leave unset for a single Zoom Room. With several Zoom Room devices each needs its own ID; at most one may leave it unset."
+        },
+        "hiddenContactNames": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Names of directory contacts this room must not reach. A matching contact (case and surrounding spaces ignored) is left out of the directory, is never invited, and is declined automatically if it invites this room."
         }
       }
     },
