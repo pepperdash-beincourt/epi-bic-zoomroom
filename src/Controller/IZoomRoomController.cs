@@ -42,6 +42,14 @@ namespace PepperDash.Essentials.Plugins
         /// <returns>The current meeting status, or null if the query failed.</returns>
         MeetingStatus? GetMeetingStatus();
 
+        /// <summary>
+        /// Synchronously queries the meeting this room is in (number, name, ...). Needed for a meeting
+        /// the room joined rather than started: the start-meeting callbacks are the only other source
+        /// of the meeting number.
+        /// </summary>
+        /// <returns>False when not in a meeting or the query failed.</returns>
+        bool TryGetMeetingInfo(out CurrentMeetingInfo info);
+
         // ── Pairing ───────────────────────────────────────────────────────────
 
         bool PairWithActivationCode(string activationCode);

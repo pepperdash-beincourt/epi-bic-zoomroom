@@ -964,6 +964,8 @@ namespace PepperDash.Essentials.Plugins
 						// ConnectingToMeeting.
 						var targetStatus = _hasConfirmedRosterAdmission ? eCodecCallStatus.Connected : eCodecCallStatus.Connecting;
 
+						RefreshMeetingIdentity();
+
 						if (ActiveCalls.Count == 0)
 						{
 							var call = new CodecActiveCallItem
@@ -1017,6 +1019,31 @@ namespace PepperDash.Essentials.Plugins
 						ResetMeetingState();
 						break;
 					}
+			}
+		}
+
+		// A meeting this room joined (by number, invite or schedule) rather than started gets no number
+		// from the start-meeting callbacks, so ask the SDK. The number is what MeetingInfo.Id reports,
+		// which is how anything outside this device can tell which meeting the room is in.
+		private void RefreshMeetingIdentity()
+		{
+			if (!string.IsNullOrEmpty(_currentMeetingNumber)) return;
+
+			try
+			{
+				if (!_controller.TryGetMeetingInfo(out var info) || info == null || string.IsNullOrEmpty(info.MeetingNumber))
+					return;
+
+				_currentMeetingNumber = info.MeetingNumber;
+				_currentMeetingId = info.MeetingNumber;
+				if (string.IsNullOrEmpty(_currentMeetingName))
+					_currentMeetingName = info.MeetingName;
+
+				this.LogDebug("Meeting number {MeetingNumber} read from the SDK for a joined meeting", info.MeetingNumber);
+			}
+			catch (Exception ex)
+			{
+				this.LogException(ex, "RefreshMeetingIdentity: meeting info query threw");
 			}
 		}
 

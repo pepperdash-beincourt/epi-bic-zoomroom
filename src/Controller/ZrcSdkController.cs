@@ -368,6 +368,12 @@ namespace PepperDash.Essentials.Plugins
 
         public MeetingStatus? GetMeetingStatus() => _disposed ? null : _sdk.GetMeetingStatus();
 
+        public bool TryGetMeetingInfo(out CurrentMeetingInfo info)
+        {
+            info = null;
+            return !_disposed && _sdk.TryGetMeetingInfo(out info);
+        }
+
         // ── Pairing ───────────────────────────────────────────────────────────
 
         public bool PairWithActivationCode(string activationCode) => _sdk.PairRoomWithActivationCode(activationCode);
