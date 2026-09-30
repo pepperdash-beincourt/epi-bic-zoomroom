@@ -650,7 +650,16 @@ namespace PepperDash.Essentials.Plugins
 		/// <returns></returns>
 		protected override bool CustomActivate()
 		{
-			RegisterPairingConsoleCommands(this);
+			// A console command that fails to register must not stop activation: base.CustomActivate()
+			// creates the Mobile Control messengers, and without them the panel gets no state for this room.
+			try
+			{
+				RegisterPairingConsoleCommands(this);
+			}
+			catch (Exception ex)
+			{
+				this.LogWarning("Could not register the Zoom Room console commands: {message}", ex.Message);
+			}
 
 			// Starts the liveness-poll watchdog that keeps devcomm honest and auto-repairs silent drops.
 			CommunicationMonitor.Start();
@@ -686,7 +695,7 @@ namespace PepperDash.Essentials.Plugins
 
 			CrestronConsole.AddNewConsoleCommand(
 				s => ForPairingTarget(s, (r, arg) => r._controller.RepairWithConfiguredCode()),
-				"forceRepairZoom", "Clear stored credentials and re-pair using the configured activation code: [deviceKey]", ConsoleAccessLevelEnum.AccessOperator);
+				"forceRepairZoom", "Clear stored pairing, re-pair with configured code: [deviceKey]", ConsoleAccessLevelEnum.AccessOperator);
 		}
 
 		// Picks the Zoom Room a pairing command is for and runs it with the rest of the arguments. A
