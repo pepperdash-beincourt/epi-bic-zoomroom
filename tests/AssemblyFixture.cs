@@ -31,7 +31,7 @@ public static class AssemblyFixture
             AppContext.BaseDirectory,
             "..", "..", "..", "..",
             "src", "bin", Configuration, "net8",
-            "PepperDash.Essentials.Plugins.Zoom.Room.dll"));
+            "PepperDash.Essentials.Plugins.bic.zoomroom.dll"));
 
     private static string PluginOutputDir => Path.GetDirectoryName(PluginDllPath)!;
 

@@ -15,8 +15,8 @@ public class FactoryDiscoveryTests
     public void Assembly_Name_Matches_Expected()
     {
         AssemblyFixture.PluginAssembly.GetName().Name
-            .Should().Be("PepperDash.Essentials.Plugins.Zoom.Room",
-                "the AssemblyName is derived from the repo name by the 4-Series build workflow");
+            .Should().Be("PepperDash.Essentials.Plugins.bic.zoomroom",
+                "the AssemblyName set in src/epi-zoom-room.4Series.csproj names the plugin DLL the loader picks up");
     }
 
     [Fact]
