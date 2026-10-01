@@ -1,0 +1,47 @@
+name: Unit Tests
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+# packages: read lets the restore pull PepperDash.ZoomRoom.Sdk from the org GitHub Packages feed.
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      # Same authentication as the build workflow: PACKAGES_PAT when set (needed when the package is
+      # owned by another repo), otherwise GITHUB_TOKEN. The source name matches nuget.config.
+      - name: Authenticate GitHub Packages NuGet feed
+        shell: pwsh
+        env:
+          PACKAGES_PAT: ${{ secrets.PACKAGES_PAT }}
+          FALLBACK_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $token = if ($env:PACKAGES_PAT) { $env:PACKAGES_PAT } else { $env:FALLBACK_TOKEN }
+          dotnet nuget update source github-pepperdash-beincourt --username "${{ github.actor }}" --password $token --store-password-in-clear-text --configfile nuget.config
+
+      # The test project builds the plugin first (ProjectReference) and loads the built DLL by name.
+      - name: Run tests
+        run: dotnet test tests -c Release --logger "trx;LogFileName=test-results.trx" --results-directory test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: test-results
+          retention-days: 30
