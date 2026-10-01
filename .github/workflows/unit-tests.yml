@@ -38,6 +38,21 @@ jobs:
       - name: Run tests
         run: dotnet test tests -c Release --logger "trx;LogFileName=test-results.trx" --results-directory test-results
 
+      # The tests load the plugin's dependencies from the restored packages (see AssemblyFixture);
+      # when they fail, show where the restore put them and what the plugin's deps.json asks for.
+      - name: Show package resolution
+        if: failure()
+        shell: pwsh
+        run: |
+          Write-Output "NUGET_PACKAGES=$env:NUGET_PACKAGES"
+          $assets = Get-Content src/obj/project.assets.json -Raw | ConvertFrom-Json
+          $assets.packageFolders.PSObject.Properties.Name | ForEach-Object {
+            Write-Output "package folder: $_"
+            Get-ChildItem $_ -Directory -Filter 'pepperdash*' -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name): $((Get-ChildItem $_.FullName -Directory).Name -join ', ')" }
+          }
+          Get-ChildItem src/bin/Release/net8 | Select-Object Name, Length | Format-Table -AutoSize | Out-String | Write-Output
+          Select-String -Path src/bin/Release/net8/*.deps.json -Pattern '"path": "pepperdash' | ForEach-Object { $_.Line.Trim() }
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
