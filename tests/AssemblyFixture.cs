@@ -66,11 +66,37 @@ public static class AssemblyFixture
         return new MetadataLoadContext(new PathAssemblyResolver(dllByName.Values));
     }
 
-    private static IEnumerable<string> ResolveDepsJsonAssemblies(string depsJsonPath)
+    /// <summary>
+    /// Where the plugin's packages were restored: the package folders recorded in its
+    /// project.assets.json, then NUGET_PACKAGES, then the default ~/.nuget/packages. CI runners
+    /// often keep the package cache somewhere other than the user profile.
+    /// </summary>
+    private static IEnumerable<string> PackageFolders()
     {
-        var nugetDir = Path.Combine(
+        var assetsPath = Path.Combine(SourceDirectory, "obj", "project.assets.json");
+        if (File.Exists(assetsPath))
+        {
+            using var stream = File.OpenRead(assetsPath);
+            using var doc = JsonDocument.Parse(stream);
+            if (doc.RootElement.TryGetProperty("packageFolders", out var folders))
+            {
+                foreach (var folder in folders.EnumerateObject())
+                    yield return folder.Name;
+            }
+        }
+
+        var fromEnvironment = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        if (!string.IsNullOrEmpty(fromEnvironment))
+            yield return fromEnvironment;
+
+        yield return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".nuget", "packages");
+    }
+
+    private static IEnumerable<string> ResolveDepsJsonAssemblies(string depsJsonPath)
+    {
+        var packageFolders = PackageFolders().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
         using var stream = File.OpenRead(depsJsonPath);
         using var doc = JsonDocument.Parse(stream);
@@ -85,8 +111,10 @@ public static class AssemblyFixture
             if (!lib.Value.TryGetProperty("path", out var pathProp))
                 continue;
 
-            var packagePath = Path.Combine(nugetDir, pathProp.GetString()!);
-            if (!Directory.Exists(packagePath)) continue;
+            var packagePath = packageFolders
+                .Select(folder => Path.Combine(folder, pathProp.GetString()!))
+                .FirstOrDefault(Directory.Exists);
+            if (packagePath == null) continue;
 
             // NuGet packages ship net8.0 libs even when plugin TFM is "net8"
             var libDir = Path.Combine(packagePath, "lib", "net8.0");
