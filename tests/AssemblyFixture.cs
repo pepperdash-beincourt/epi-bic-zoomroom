@@ -55,11 +55,13 @@ public static class AssemblyFixture
         foreach (var dll in Directory.GetFiles(runtimeDir, "*.dll"))
             dllByName.TryAdd(Path.GetFileName(dll), dll);
 
-        // Priority 3: deterministic deps.json resolution for transitive NuGet packages
+        // Priority 3: the plugin's NuGet packages, transitive ones included. project.assets.json lists
+        // every restored package; deps.json can leave out packages referenced with
+        // ExcludeAssets="runtime" (PepperDashEssentials and its dependencies), depending on the SDK.
         var depsJsonPath = Path.ChangeExtension(PluginDllPath, ".deps.json");
-        if (File.Exists(depsJsonPath))
+        foreach (var listPath in new[] { AssetsJsonPath, depsJsonPath }.Where(File.Exists))
         {
-            foreach (var path in ResolveDepsJsonAssemblies(depsJsonPath))
+            foreach (var path in ResolvePackageAssemblies(listPath))
                 dllByName.TryAdd(Path.GetFileName(path), path);
         }
 
@@ -73,10 +75,9 @@ public static class AssemblyFixture
     /// </summary>
     private static IEnumerable<string> PackageFolders()
     {
-        var assetsPath = Path.Combine(SourceDirectory, "obj", "project.assets.json");
-        if (File.Exists(assetsPath))
+        if (File.Exists(AssetsJsonPath))
         {
-            using var stream = File.OpenRead(assetsPath);
+            using var stream = File.OpenRead(AssetsJsonPath);
             using var doc = JsonDocument.Parse(stream);
             if (doc.RootElement.TryGetProperty("packageFolders", out var folders))
             {
@@ -94,11 +95,18 @@ public static class AssemblyFixture
             ".nuget", "packages");
     }
 
-    private static IEnumerable<string> ResolveDepsJsonAssemblies(string depsJsonPath)
+    /// <summary>The plugin's restore output, which lists every package it depends on.</summary>
+    private static string AssetsJsonPath => Path.Combine(SourceDirectory, "obj", "project.assets.json");
+
+    /// <summary>
+    /// Assemblies of every package in a "libraries" list. project.assets.json and deps.json share the
+    /// shape: each entry has a "type" and, for packages, a "path" relative to a package folder.
+    /// </summary>
+    private static IEnumerable<string> ResolvePackageAssemblies(string libraryListPath)
     {
         var packageFolders = PackageFolders().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-        using var stream = File.OpenRead(depsJsonPath);
+        using var stream = File.OpenRead(libraryListPath);
         using var doc = JsonDocument.Parse(stream);
 
         if (!doc.RootElement.TryGetProperty("libraries", out var libraries))
