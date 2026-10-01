@@ -1,9 +1,9 @@
 name: Unit Tests
 
+# Pushes run these tests from the build workflow, ahead of versioning and release; pull requests
+# run them here.
 on:
-  push:
-    branches:
-      - '**'
+  workflow_call:
   pull_request:
 
 # packages: read lets the restore pull PepperDash.ZoomRoom.Sdk from the org GitHub Packages feed.

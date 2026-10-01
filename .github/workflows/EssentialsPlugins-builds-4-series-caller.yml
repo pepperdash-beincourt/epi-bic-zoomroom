@@ -14,9 +14,15 @@ permissions:
   packages: write
 
 jobs:
+  # getVersion creates the tag and release, so it waits for the tests: a failing test means no new
+  # version, no release and no package.
+  test:
+    uses: ./.github/workflows/unit-tests.yml
+    secrets: inherit
   getVersion:
     uses: PepperDash/workflow-templates/.github/workflows/essentialsplugins-getversion.yml@main
     secrets: inherit
+    needs: test
   build-4Series:
     # Temporarily pinned to the branch that authenticates the org GitHub Packages feed so this
     # plugin's INTERNAL dependency (PepperDash.ZoomRoom.Sdk) restores in CI. Revert to @main once
