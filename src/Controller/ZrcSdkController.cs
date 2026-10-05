@@ -30,6 +30,15 @@ namespace PepperDash.Essentials.Plugins
         private bool _isConnected;
         private static readonly int[] ReconnectDelaysMs = { 5000, 10000, 20000, 30000, 60000 };
 
+        // Stored-pairing fallback: when Zoom's server rejects the stored pairing (as opposed to the room
+        // or the cloud being unreachable), RetryToPairRoom can never succeed again, so re-pair once with
+        // the configured activation code. Re-armed by the next successful pair.
+        private static readonly int[] StoredPairingRejectedCodes = { 5002, 100000401 };
+        private const long StoredPairingFallbackDelayMs = 2000;
+        private bool _lastPairUsedStoredCredentials;
+        private bool _storedPairingFallbackUsed;
+        private CTimer _storedPairingFallbackTimer;
+
         // Health watchdog: the SDK's connection flag/events can go stale on a silent/half-open drop,
         // but real command results stay truthful. Count consecutive command failures (while we still
         // believe we're connected) and probe the link before declaring the room offline.
@@ -257,6 +266,10 @@ namespace PepperDash.Essentials.Plugins
             {
                 this.LogInformation("PairRoomResult: [{ErrorCode}] {Message}",
                     e.ErrorCode, ZrcSdkCodes.GetPairRoomResultDescription(e.ErrorCode));
+                if (e.ErrorCode == 0)
+                    _storedPairingFallbackUsed = false;
+                else if (_lastPairUsedStoredCredentials && Array.IndexOf(StoredPairingRejectedCodes, e.ErrorCode) >= 0)
+                    FallBackToActivationCode(e.ErrorCode);
                 SafeRaise(() => PairRoomResult?.Invoke(this, e));
             };
             _sdk.MeetingStatus           += (s, e) => SafeRaise(() => MeetingStatusChanged?.Invoke(this, e));
@@ -337,11 +350,13 @@ namespace PepperDash.Essentials.Plugins
             if (_sdk.CanRetryToPairLastRoom())
             {
                 this.LogInformation("Stored pairing credentials found — reconnecting...");
+                _lastPairUsedStoredCredentials = true;
                 _sdk.RetryToPairRoom();
             }
             else if (!string.IsNullOrEmpty(_activationCode))
             {
                 this.LogInformation("No stored credentials — pairing with activation code.");
+                _lastPairUsedStoredCredentials = false;
                 _sdk.PairRoomWithActivationCode(_activationCode);
             }
             else
@@ -376,9 +391,20 @@ namespace PepperDash.Essentials.Plugins
 
         // ── Pairing ───────────────────────────────────────────────────────────
 
-        public bool PairWithActivationCode(string activationCode) => _sdk.PairRoomWithActivationCode(activationCode);
+        public bool PairWithActivationCode(string activationCode)
+        {
+            _lastPairUsedStoredCredentials = false;
+            return _sdk.PairRoomWithActivationCode(activationCode);
+        }
+
         public bool CanRetryPair()  => _sdk.CanRetryToPairLastRoom();
-        public bool RetryPair()     => _sdk.RetryToPairRoom();
+
+        public bool RetryPair()
+        {
+            _lastPairUsedStoredCredentials = true;
+            return _sdk.RetryToPairRoom();
+        }
+
         public bool Unpair()        => _sdk.UnpairRoom();
 
         public bool RepairWithConfiguredCode()
@@ -390,8 +416,47 @@ namespace PepperDash.Essentials.Plugins
             }
 
             this.LogInformation("Clearing stored credentials and re-pairing with configured activation code.");
+            _lastPairUsedStoredCredentials = false;
             _sdk.UnpairRoom();
             return _sdk.PairRoomWithActivationCode(_activationCode);
+        }
+
+        // Called from the SDK's PairRoomResult event when the server rejected the stored pairing. Runs
+        // the re-pair on a timer rather than inside the SDK callback, once until a pair succeeds again.
+        private void FallBackToActivationCode(int errorCode)
+        {
+            if (_disposed) return;
+
+            if (string.IsNullOrEmpty(_activationCode))
+            {
+                this.LogWarning("Zoom rejected the stored pairing (code {Code}) and no activationCode is configured. Pair with 'pairZoomRoom <code>'.", errorCode);
+                return;
+            }
+
+            if (_storedPairingFallbackUsed)
+            {
+                this.LogWarning("Zoom rejected the stored pairing (code {Code}) again after re-pairing with the configured activation code. Check the code in the Zoom portal and pair with 'pairZoomRoom <code>'.", errorCode);
+                return;
+            }
+
+            _storedPairingFallbackUsed = true;
+            this.LogWarning("Zoom rejected the stored pairing (code {Code}); re-pairing with the configured activation code.", errorCode);
+
+            _storedPairingFallbackTimer?.Dispose();
+            _storedPairingFallbackTimer = new CTimer(_ =>
+            {
+                if (_disposed) return;
+                try
+                {
+                    // The stored pairing is dead, so the reconnect loop's RetryToPairRoom cannot help.
+                    CancelReconnect();
+                    RepairWithConfiguredCode();
+                }
+                catch (Exception ex)
+                {
+                    this.LogError(ex, "Re-pairing with the configured activation code failed: {Message}", ex.Message);
+                }
+            }, null, StoredPairingFallbackDelayMs);
         }
 
         // ── Device ────────────────────────────────────────────────────────────
@@ -647,6 +712,8 @@ namespace PepperDash.Essentials.Plugins
             if (_disposed) return;
             _disposed = true;
             CancelReconnect();
+            _storedPairingFallbackTimer?.Dispose();
+            _storedPairingFallbackTimer = null;
             CrestronEnvironment.ProgramStatusEventHandler -= OnProgramStatusEvent;
             try
             {
@@ -689,6 +756,7 @@ namespace PepperDash.Essentials.Plugins
             {
                 if (_disposed) return;
                 this.LogInformation("Auto-reconnect attempt {Attempt}: calling RetryToPairRoom()", _reconnectAttempt);
+                _lastPairUsedStoredCredentials = true;
                 _sdk.RetryToPairRoom();
                 // A successful pair fires ConnectionStateChanged(Connected) -> CancelReconnect() stops
                 // this loop. If it didn't (silent failure), keep retrying at the capped delay.
