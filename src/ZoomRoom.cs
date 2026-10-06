@@ -2483,15 +2483,16 @@ namespace PepperDash.Essentials.Plugins
 		}
 
 		/// <summary>
-		/// Mobile Control's generic "end this call" action (from IHasCodecCallControls) for a host or
-		/// co-host must actually end the meeting for everyone, not just remove this Zoom Room from it -
-		/// this previously always called LeaveMeeting() regardless of role, so a host pressing what the
-		/// UI labeled "End Call" only ever left the meeting (#confirmed via live testing).
+		/// Mobile Control's generic "end this call" action (from IHasCodecCallControls) for the host
+		/// must actually end the meeting for everyone, not just remove this Zoom Room from it - this
+		/// previously always called LeaveMeeting() regardless of role, so a host pressing what the UI
+		/// labeled "End Call" only ever left the meeting (#confirmed via live testing). Ending for all
+		/// is a host-only control in Zoom, so a co-host (like any other participant) leaves instead.
 		/// </summary>
 		public override void EndCall(CodecActiveCallItem call)
 		{
 			this.LogInformation("EndCall: isHost={IsHost}, isCoHost={IsCoHost}", _sdkIsHost, _sdkIsCoHost);
-			if (_sdkIsHost || _sdkIsCoHost)
+			if (_sdkIsHost)
 			{
 				EndMeetingForAll();
 			}
@@ -2501,11 +2502,11 @@ namespace PepperDash.Essentials.Plugins
 			}
 		}
 
-		/// <summary>Same host/co-host distinction as <see cref="EndCall"/> - see its remarks.</summary>
+		/// <summary>Same host-only rule as <see cref="EndCall"/> - see its remarks.</summary>
 		public override void EndAllCalls()
 		{
 			this.LogInformation("EndAllCalls: isHost={IsHost}, isCoHost={IsCoHost}", _sdkIsHost, _sdkIsCoHost);
-			if (_sdkIsHost || _sdkIsCoHost)
+			if (_sdkIsHost)
 			{
 				EndMeetingForAll();
 			}
