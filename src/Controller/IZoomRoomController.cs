@@ -228,6 +228,12 @@ namespace PepperDash.Essentials.Plugins
         /// <summary>Assigns the host role to a participant. Host only.</summary>
         bool AssignHost(int userId);
 
+        /// <summary>Multi-camera: makes the room's main video the active speaker. Returns the SDK code.</summary>
+        int SetMySelfAsActiveSpeaker();
+
+        /// <summary>Multi-camera: makes one of the room's own camera tiles (a child participant) the active speaker. Returns the SDK code.</summary>
+        int SetMyChildAsActiveSpeaker(int userId);
+
         // ── Share ─────────────────────────────────────────────────────────────
 
         bool StopShare();

@@ -696,6 +696,10 @@ namespace PepperDash.Essentials.Plugins
 			CrestronConsole.AddNewConsoleCommand(
 				s => ForPairingTarget(s, (r, arg) => r._controller.RepairWithConfiguredCode()),
 				"forceRepairZoom", "Clear stored pairing, re-pair with configured code: [deviceKey]", ConsoleAccessLevelEnum.AccessOperator);
+
+			CrestronConsole.AddNewConsoleCommand(
+				s => ForPairingTarget(s, (r, arg) => r.ActiveSpeakerConsoleCommand(arg)),
+				"zoomActiveSpeaker", "Multi-camera active speaker: [deviceKey] list | <tile>", ConsoleAccessLevelEnum.AccessOperator);
 		}
 
 		// Picks the Zoom Room a pairing command is for and runs it with the rest of the arguments. A

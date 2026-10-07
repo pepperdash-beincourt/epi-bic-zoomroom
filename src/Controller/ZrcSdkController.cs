@@ -618,6 +618,8 @@ namespace PepperDash.Essentials.Plugins
         public int GetParticipantCount() => _sdk.GetParticipantCount();
         public bool ExpelUser(int userId)  => Guard(nameof(ExpelUser)) && Rc(nameof(ExpelUser), _sdk.ExpelUser(userId));
         public bool AssignHost(int userId) => Guard(nameof(AssignHost)) && Rc(nameof(AssignHost), _sdk.AssignHost(userId));
+        public int SetMySelfAsActiveSpeaker()              => Guard(nameof(SetMySelfAsActiveSpeaker)) ? Rc(nameof(SetMySelfAsActiveSpeaker), _sdk.SetMySelfAsActiveSpeaker()) : -1;
+        public int SetMyChildAsActiveSpeaker(int userId)   => Guard(nameof(SetMyChildAsActiveSpeaker)) ? Rc(nameof(SetMyChildAsActiveSpeaker), _sdk.SetMyChildAsActiveSpeaker(userId)) : -1;
 
         // ── Share ─────────────────────────────────────────────────────────────
 
