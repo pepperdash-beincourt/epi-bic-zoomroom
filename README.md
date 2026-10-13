@@ -65,12 +65,10 @@ The plugin registers the following console commands (operator access level):
 
 | Command | Description |
 |---------|-------------|
-| `pairZoomRoom [deviceKey] <activation-code>` | Pair the Zoom Room using the supplied activation code. |
-| `repairZoomRoom [deviceKey]` | Reconnect to the last paired Zoom Room using stored credentials. Reconnect is normally **automatic** (see Connection watchdog below); this is the manual override. |
-| `unpairZoomRoom [deviceKey]` | Unpair from the Zoom Room. |
-| `forceRepairZoom [deviceKey]` | Clear stored credentials and re-pair using the activation code from configuration. Use this after rotating the activation code, when stored credentials would otherwise be reused. |
-
-`deviceKey` is the Zoom Room device's key from configuration. With one Zoom Room in the program it can be left out. With more than one it is required, and a command without it lists the keys. The commands are registered once for the whole program, because the console accepts each command name only once.
+| `pairZoomRoom <activation-code>` | Pair the Zoom Room using the supplied activation code. |
+| `repairZoomRoom` | Reconnect to the last paired Zoom Room using stored credentials. Reconnect is normally **automatic** (see Connection watchdog below); this is the manual override. |
+| `unpairZoomRoom` | Unpair from the Zoom Room. |
+| `forceRepairZoom` | Clear stored credentials and re-pair using the activation code from configuration. Use this after rotating the activation code, when stored credentials would otherwise be reused. |
 
 ## Behavior notes
 
