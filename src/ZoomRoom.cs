@@ -26,7 +26,7 @@ using PepperDash.ZoomRoom.Sdk.EventArgs;
 
 namespace PepperDash.Essentials.Plugins
 {
-	public class ZoomRoom : VideoCodecBase, IHasCodecSelfView, IHasDirectoryHistoryStack, ICommunicationMonitor,
+	public partial class ZoomRoom : VideoCodecBase, IHasCodecSelfView, IHasDirectoryHistoryStack, ICommunicationMonitor,
 		IHasScheduleAwareness, IHasCodecCameras, IHasParticipants, IHasCameraOff, IHasCameraMuteWithUnmuteReqeust, IHasCameraAutoMode,
 		IHasFarEndContentStatus, IHasSelfviewPosition, IHasPhoneDialing, IHasZoomRoomLayouts, IHasParticipantPinUnpin,
 		IHasParticipantAudioMute, IHasSelfviewSize, IPasswordPrompt, IHasStartMeeting, IHasMeetingInfo, IHasPresentationOnlyMeeting,
@@ -610,21 +610,8 @@ namespace PepperDash.Essentials.Plugins
 		/// <returns></returns>
 		protected override bool CustomActivate()
 		{
-			CrestronConsole.AddNewConsoleCommand(
-				s => { if (!string.IsNullOrWhiteSpace(s)) _controller.PairWithActivationCode(s.Trim()); },
-				"pairZoomRoom", "Pair Zoom Room with activation code", ConsoleAccessLevelEnum.AccessOperator);
-
-			CrestronConsole.AddNewConsoleCommand(
-				s => _controller.RetryPair(),
-				"repairZoomRoom", "Reconnect to last paired Zoom Room", ConsoleAccessLevelEnum.AccessOperator);
-
-			CrestronConsole.AddNewConsoleCommand(
-				s => _controller.Unpair(),
-				"unpairZoomRoom", "Unpair from Zoom Room", ConsoleAccessLevelEnum.AccessOperator);
-
-			CrestronConsole.AddNewConsoleCommand(
-				s => _controller.RepairWithConfiguredCode(),
-				"forceRepairZoom", "Clear stored credentials and re-pair using the configured activation code", ConsoleAccessLevelEnum.AccessOperator);
+			// Pairing console commands, shared by every Zoom Room and addressed by device key.
+			RegisterConsoleCommands();
 
 			// Starts the liveness-poll watchdog that keeps devcomm honest and auto-repairs silent drops.
 			CommunicationMonitor.Start();
