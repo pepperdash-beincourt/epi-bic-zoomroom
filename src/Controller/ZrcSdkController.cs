@@ -32,8 +32,9 @@ namespace PepperDash.Essentials.Plugins
 
         // Stored-pairing fallback: when Zoom's server rejects the stored pairing (as opposed to the room
         // or the cloud being unreachable), RetryToPairRoom can never succeed again, so re-pair once with
-        // the configured activation code. Re-armed by the next successful pair.
-        private static readonly int[] StoredPairingRejectedCodes = { 5002, 100000401 };
+        // the configured activation code. Re-armed by the next successful pair. 100006000 is what Zoom
+        // returns once the room has been given a new activation code and the stored pairing is gone.
+        private static readonly int[] StoredPairingRejectedCodes = { 5002, 100000401, 100006000 };
         private const long StoredPairingFallbackDelayMs = 2000;
         private bool _lastPairUsedStoredCredentials;
         private bool _storedPairingFallbackUsed;
