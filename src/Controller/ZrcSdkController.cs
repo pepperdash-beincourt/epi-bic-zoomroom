@@ -43,6 +43,11 @@ namespace PepperDash.Essentials.Plugins
         private bool _storedPairingFallbackUsed;
         private CTimer _storedPairingFallbackTimer;
 
+        // Zoom accepts an activation code only once. The code of the last pair attempt made with a code,
+        // and a file (a hash, not the code) remembering which code last paired this room, so a code that
+        // has already been used is never spent again automatically.
+        private string _lastPairActivationCode;
+
         // Health watchdog: the SDK's connection flag/events can go stale on a silent/half-open drop,
         // but real command results stay truthful. Count consecutive command failures (while we still
         // believe we're connected) and probe the link before declaring the room offline.
@@ -271,7 +276,11 @@ namespace PepperDash.Essentials.Plugins
                 this.LogInformation("PairRoomResult: [{ErrorCode}] {Message}",
                     e.ErrorCode, ZrcSdkCodes.GetPairRoomResultDescription(e.ErrorCode));
                 if (e.ErrorCode == 0)
+                {
                     _storedPairingFallbackUsed = false;
+                    if (!_lastPairUsedStoredCredentials && !string.IsNullOrEmpty(_lastPairActivationCode))
+                        RememberPairedActivationCode(_lastPairActivationCode);
+                }
                 else if (_lastPairUsedStoredCredentials && Array.IndexOf(StoredPairingRejectedCodes, e.ErrorCode) >= 0)
                     FallBackToActivationCode(e.ErrorCode);
                 SafeRaise(() => PairRoomResult?.Invoke(this, e));
@@ -360,8 +369,9 @@ namespace PepperDash.Essentials.Plugins
             else if (!string.IsNullOrEmpty(_activationCode))
             {
                 this.LogInformation("No stored credentials — pairing with activation code.");
-                _lastPairUsedStoredCredentials = false;
-                _sdk.PairRoomWithActivationCode(_activationCode);
+                if (ConfiguredCodeAlreadyPaired())
+                    this.LogWarning("The configured activation code already paired this room once; Zoom may reject it. If it does, generate a new code in the Zoom portal and run 'pairZoomRoom'.");
+                PairWithActivationCode(_activationCode);
             }
             else
             {
@@ -398,6 +408,7 @@ namespace PepperDash.Essentials.Plugins
         public bool PairWithActivationCode(string activationCode)
         {
             _lastPairUsedStoredCredentials = false;
+            _lastPairActivationCode = activationCode?.Trim();
             return _sdk.PairRoomWithActivationCode(activationCode);
         }
 
@@ -419,10 +430,54 @@ namespace PepperDash.Essentials.Plugins
                 return false;
             }
 
-            this.LogInformation("Clearing stored credentials and re-pairing with configured activation code.");
-            _lastPairUsedStoredCredentials = false;
-            _sdk.UnpairRoom();
-            return _sdk.PairRoomWithActivationCode(_activationCode);
+            // Not unpaired first: an activation code works once, so if Zoom rejects this one the stored
+            // pairing must still be there to reconnect with. To discard it deliberately, run
+            // 'unpairZoomRoom' before 'pairZoomRoom'.
+            if (ConfiguredCodeAlreadyPaired())
+                this.LogWarning("The configured activation code already paired this room once; Zoom may reject it. The stored pairing is kept either way.");
+            this.LogInformation("Re-pairing with the configured activation code.");
+            return PairWithActivationCode(_activationCode);
+        }
+
+        private string PairedCodeFilePath =>
+            Path.Combine(_sdkConfigPath, "paired-code-" + (_roomId ?? "default") + ".sha256");
+
+        private static string HashActivationCode(string code)
+        {
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes((code ?? string.Empty).Trim()));
+            return BitConverter.ToString(hash).Replace("-", string.Empty);
+        }
+
+        private void RememberPairedActivationCode(string code)
+        {
+            try
+            {
+                Directory.CreateDirectory(_sdkConfigPath);
+                File.WriteAllText(PairedCodeFilePath, HashActivationCode(code));
+            }
+            catch (Exception ex)
+            {
+                this.LogWarning("Could not record which activation code paired this room: {Message}", ex.Message);
+            }
+        }
+
+        /// <summary>True when the configured activation code is the one that last paired this room.</summary>
+        private bool ConfiguredCodeAlreadyPaired()
+        {
+            if (string.IsNullOrEmpty(_activationCode))
+                return false;
+
+            try
+            {
+                return File.Exists(PairedCodeFilePath)
+                    && string.Equals(File.ReadAllText(PairedCodeFilePath).Trim(), HashActivationCode(_activationCode), StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                this.LogWarning("Could not read which activation code paired this room: {Message}", ex.Message);
+                return false;
+            }
         }
 
         // Called from the SDK's PairRoomResult event when the server rejected the stored pairing. Runs
@@ -434,6 +489,12 @@ namespace PepperDash.Essentials.Plugins
             if (string.IsNullOrEmpty(_activationCode))
             {
                 this.LogWarning("Zoom rejected the stored pairing (code {Code}) and no activationCode is configured. Pair with 'pairZoomRoom <code>'.", errorCode);
+                return;
+            }
+
+            if (ConfiguredCodeAlreadyPaired())
+            {
+                this.LogWarning("Zoom rejected the stored pairing (code {Code}), and the configured activation code has already paired this room, so Zoom will not accept it again. Generate a new code in the Zoom portal and run 'pairZoomRoom'.", errorCode);
                 return;
             }
 
