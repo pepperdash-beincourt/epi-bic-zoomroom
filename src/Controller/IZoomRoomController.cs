@@ -162,6 +162,12 @@ namespace PepperDash.Essentials.Plugins
         bool PinUserOnScreen(int userId, int screenIndex = 0);
         bool UnpinUserFromScreen(int userId, int screenIndex = 0);
 
+        /// <summary>Spotlights a participant for everyone in the meeting. Host / co-host.</summary>
+        bool SpotlightUser(int userId);
+
+        /// <summary>Removes a participant's spotlight. Host / co-host.</summary>
+        bool CancelSpotlightUser(int userId);
+
         /// <summary>Controls a far-end (participant) camera. action = CameraControlAction, type = CameraControlType (Start/Continue/Stop).</summary>
         bool ControlUserCamera(int userId, int action, int type);
 

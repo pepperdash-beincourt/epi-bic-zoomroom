@@ -648,6 +648,8 @@ namespace PepperDash.Essentials.Plugins
         public bool MuteUserVideo(int userId, bool mute)       => Guard(nameof(MuteUserVideo)) && Rc(nameof(MuteUserVideo), _sdk.MuteUserVideo(userId, mute));
         public bool PinUserOnScreen(int userId, int screenIndex = 0)    => Guard(nameof(PinUserOnScreen)) && Rc(nameof(PinUserOnScreen), _sdk.PinUserOnScreen(userId, screenIndex));
         public bool UnpinUserFromScreen(int userId, int screenIndex = 0) => Guard(nameof(UnpinUserFromScreen)) && Rc(nameof(UnpinUserFromScreen), _sdk.UnpinUserFromScreen(userId, screenIndex));
+        public bool SpotlightUser(int userId)       => Guard(nameof(SpotlightUser)) && Rc(nameof(SpotlightUser), _sdk.SpotlightUser(userId));
+        public bool CancelSpotlightUser(int userId) => Guard(nameof(CancelSpotlightUser)) && Rc(nameof(CancelSpotlightUser), _sdk.CancelSpotlightUser(userId));
         public bool ControlUserCamera(int userId, int action, int type) => Guard(nameof(ControlUserCamera)) && Rc(nameof(ControlUserCamera), _sdk.ControlUserCamera(userId, action, type));
         public bool ControlCamera(string deviceId, int action, int type)    => Guard(nameof(ControlCamera)) && Rc(nameof(ControlCamera), _sdk.ControlCamera(deviceId, action, type));
         public bool ChangeSmartCameraMode(int mask, string deviceId = "")   => Guard(nameof(ChangeSmartCameraMode)) && Rc(nameof(ChangeSmartCameraMode), _sdk.ChangeSmartCameraMode(mask, deviceId));

@@ -42,13 +42,42 @@ namespace PepperDash.Essentials.AppServer.Messengers
                 if (c != null) _codec.ToggleParticipantPinState(c.UserId, c.ScreenIndex);
             });
 
+            // Spotlight for everyone in the meeting (host / co-host). Content: { "value": userId }.
+            AddAction("/spotlightParticipant", (id, content) =>
+            {
+                var i = content?.ToObject<MobileControlSimpleContent<int>>();
+                if (i != null) _codec.SpotlightParticipant(i.Value);
+            });
+            AddAction("/unspotlightParticipant", (id, content) =>
+            {
+                var i = content?.ToObject<MobileControlSimpleContent<int>>();
+                if (i != null) _codec.UnspotlightParticipant(i.Value);
+            });
+            AddAction("/toggleParticipantSpotlight", (id, content) =>
+            {
+                var i = content?.ToObject<MobileControlSimpleContent<int>>();
+                if (i != null) _codec.ToggleParticipantSpotlight(i.Value);
+            });
+
             _codec.NumberOfScreensFeedback.OutputChange += (s, e) =>
                 Task.Run(() => PostStatusMessage(new ParticipantPinStateMessage { NumberOfScreens = e.IntValue }));
+
+            _codec.PinSpotlightChanged += (s, e) =>
+                Task.Run(() => PostStatusMessage(new ParticipantPinStateMessage
+                {
+                    PinnedUserIds = _codec.PinnedUserIds,
+                    SpotlightedUserIds = _codec.SpotlightedUserIds,
+                }));
         }
 
         private void SendFullStatus(string id = null) =>
             Task.Run(() => PostStatusMessage(
-                new ParticipantPinStateMessage { NumberOfScreens = _codec.NumberOfScreensFeedback.IntValue }, id));
+                new ParticipantPinStateMessage
+                {
+                    NumberOfScreens = _codec.NumberOfScreensFeedback.IntValue,
+                    PinnedUserIds = _codec.PinnedUserIds,
+                    SpotlightedUserIds = _codec.SpotlightedUserIds,
+                }, id));
     }
 
     /// <summary>
@@ -58,5 +87,13 @@ namespace PepperDash.Essentials.AppServer.Messengers
     {
         [JsonProperty("numberOfScreens", NullValueHandling = NullValueHandling.Ignore)]
         public int? NumberOfScreens { get; set; }
+
+        /// <summary>Participants this room has pinned on its own screen (tracked; the SDK reports no pin state).</summary>
+        [JsonProperty("pinnedUserIds", NullValueHandling = NullValueHandling.Ignore)]
+        public int[] PinnedUserIds { get; set; }
+
+        /// <summary>Participants this room has spotlighted for everyone (tracked; the SDK reports no spotlight state).</summary>
+        [JsonProperty("spotlightedUserIds", NullValueHandling = NullValueHandling.Ignore)]
+        public int[] SpotlightedUserIds { get; set; }
     }
 }

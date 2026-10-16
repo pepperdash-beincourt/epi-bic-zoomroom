@@ -1238,9 +1238,11 @@ namespace PepperDash.Essentials.Plugins
 			lock (_participantLock)
 			{
 				_pinnedUserScreens.Clear();
+				_spotlightedUserIds.Clear();
 				_participantInfoByUserId.Clear();
 				Participants.CurrentParticipants = new System.Collections.Generic.List<Participant>();
 			}
+			RaisePinSpotlightChanged();
 			_pendingInviteCall = null;
 			ActiveCalls.Clear();
 			OnCallStatusChange(new CodecActiveCallItem { Status = eCodecCallStatus.Disconnected });
@@ -2817,6 +2819,7 @@ namespace PepperDash.Essentials.Plugins
 			{
 				foreach (var info in participants)
 					_participantInfoByUserId.Remove(info.UserID);
+				ForgetPinSpotlight(participants.Select(info => info.UserID));
 			}
 			else
 			{
@@ -3252,7 +3255,10 @@ namespace PepperDash.Essentials.Plugins
 			// Track on success so ToggleParticipantPinState can later unpin (the SDK exposes no
 			// per-participant pin state of its own).
 			if (_controller.PinUserOnScreen(userId, screenIndex))
+			{
 				lock (_participantLock) _pinnedUserScreens[userId] = screenIndex;
+				RaisePinSpotlightChanged();
+			}
 		}
 
 		public void UnPinParticipant(int userId)
@@ -3260,7 +3266,10 @@ namespace PepperDash.Essentials.Plugins
 			int screen;
 			lock (_participantLock) screen = _pinnedUserScreens.TryGetValue(userId, out var s) ? s : 0;
 			if (_controller.UnpinUserFromScreen(userId, screen))
+			{
 				lock (_participantLock) _pinnedUserScreens.Remove(userId);
+				RaisePinSpotlightChanged();
+			}
 		}
 
 		public void ToggleParticipantPinState(int userId, int screenIndex)
