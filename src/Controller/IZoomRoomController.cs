@@ -177,6 +177,9 @@ namespace PepperDash.Essentials.Plugins
         /// <summary>Gets the currently selected/active camera, or null if unavailable.</summary>
         CameraDevice GetCurrentCamera();
 
+        /// <summary>Renames a camera in the Zoom Room's settings (persistent). Returns the SDK code (141 = name can't be set).</summary>
+        int SetCameraDisplayName(string deviceId, string displayName);
+
         /// <summary>Selects the active local camera by device ID.</summary>
         bool SetCurrentCamera(string deviceId);
 

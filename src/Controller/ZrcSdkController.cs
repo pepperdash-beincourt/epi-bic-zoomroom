@@ -653,6 +653,8 @@ namespace PepperDash.Essentials.Plugins
         public bool ChangeSmartCameraMode(int mask, string deviceId = "")   => Guard(nameof(ChangeSmartCameraMode)) && Rc(nameof(ChangeSmartCameraMode), _sdk.ChangeSmartCameraMode(mask, deviceId));
         public CameraDevice[] GetCameras()              => _sdk.GetCameras();
         public CameraDevice GetCurrentCamera()          => _sdk.TryGetCurrentCamera(out var cam) ? cam : null;
+        public int SetCameraDisplayName(string deviceId, string displayName)
+            => Guard(nameof(SetCameraDisplayName)) ? Rc(nameof(SetCameraDisplayName), _sdk.SetCameraDisplayName(deviceId, displayName)) : -1;
         public bool SetCurrentCamera(string deviceId)   => Guard(nameof(SetCurrentCamera)) && Rc(nameof(SetCurrentCamera), _sdk.SetCurrentCamera(deviceId));
         public bool SetCameraPreset(uint index, string deviceId)  => Guard(nameof(SetCameraPreset)) && Rc(nameof(SetCameraPreset), _sdk.SetCameraPreset(index, deviceId ?? ""));
         public bool GoToCameraPreset(uint index, string deviceId) => Guard(nameof(GoToCameraPreset)) && Rc(nameof(GoToCameraPreset), _sdk.GoToCameraPreset(index, deviceId ?? ""));
