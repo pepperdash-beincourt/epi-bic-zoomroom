@@ -69,6 +69,8 @@ namespace PepperDash.Essentials.Plugins
 		private int _nextPromptId = 1;
 		private bool _noticedIsHost;
 		private bool _noticedIsCoHost;
+		// The webinar role last announced (or seen before admission); null until one is reported.
+		private WebinarRoleChangedState? _noticedWebinarRole;
 
 		/// <summary>Raised whenever <see cref="ActivePrompts"/> changes (added, answered, dismissed, cleared).</summary>
 		public event EventHandler PromptsChanged;
@@ -188,6 +190,10 @@ namespace PepperDash.Essentials.Plugins
 					Default(p, "Help Request", e.Type == 0 ? "Your request for help was sent to the host." : "The host is not available right now.", "OK", string.Empty);
 					break;
 				case ZrcPromptKind.WebinarRoleChanged:
+					// The Zoom Room can report the same role over and over (e.g. while waiting to be let
+					// in), so only an actual change after admission is announced.
+					if (e.IsShowing && !ShouldAnnounceWebinarRole((WebinarRoleChangedState)e.Type))
+						return;
 					p.Kind = "webinarRoleChanged";
 					p.SubType = ((WebinarRoleChangedState)e.Type).ToString();
 					p.Informational = true;
@@ -253,6 +259,26 @@ namespace PepperDash.Essentials.Plugins
 				_noticedIsCoHost = _sdkIsCoHost;
 				RoleNotice("coHost", _sdkIsCoHost ? "This room is now a co-host." : "This room is no longer a co-host.");
 			}
+		}
+
+		/// <summary>
+		/// True when a reported webinar role should be shown: the room has been admitted and the role
+		/// differs from the last one. A role reported before admission is remembered, not announced,
+		/// like the host/co-host roles the room joins with (see <see cref="NoteRoleChange"/>).
+		/// </summary>
+		private bool ShouldAnnounceWebinarRole(WebinarRoleChangedState role)
+		{
+			if (!_hasConfirmedRosterAdmission)
+			{
+				_noticedWebinarRole = role;
+				return false;
+			}
+
+			if (_noticedWebinarRole == role)
+				return false;
+
+			_noticedWebinarRole = role;
+			return true;
 		}
 
 		private void RoleNotice(string subType, string message)
@@ -440,6 +466,7 @@ namespace PepperDash.Essentials.Plugins
 			}
 			_noticedIsHost = false;
 			_noticedIsCoHost = false;
+			_noticedWebinarRole = null;
 			if (!any) return;
 			this.LogDebug("Prompts cleared: {Why}", why);
 			PromptsChanged?.Invoke(this, EventArgs.Empty);
