@@ -186,6 +186,16 @@ namespace PepperDash.Essentials.Plugins
         /// <summary>Renames a camera in the Zoom Room's settings (persistent). Returns the SDK code (141 = name can't be set).</summary>
         int SetCameraDisplayName(string deviceId, string displayName);
 
+        // ── Third-party (integration) meetings ────────────────────────────────
+
+        /// <summary>Joins a Teams / Webex / Google (...) meeting by ID. Returns the SDK code (0 = request accepted).</summary>
+        int JoinIntegrationMeeting(string meetingId, string password, ThirdPartyMeetingProvider provider);
+        int LeaveIntegrationMeeting();
+        int MuteIntegrationAudio(bool mute);
+        int StopIntegrationVideo(bool stop);
+        /// <summary>Whether and how the room may join the provider's meetings; null when the SDK can't say.</summary>
+        InterOperabilityInfo GetInterOperabilityInfo(ThirdPartyMeetingProvider provider);
+
         /// <summary>Selects the active local camera by device ID.</summary>
         bool SetCurrentCamera(string deviceId);
 
@@ -348,6 +358,9 @@ namespace PepperDash.Essentials.Plugins
         event EventHandler<WebinarAttendeeListEventArgs> WebinarAttendeeListReceived;
         /// <summary>Webinar head counts (attendees, raised hands, panelists; -1 = not in this notification).</summary>
         event EventHandler<WebinarCountsEventArgs> WebinarCountsChanged;
+
+        /// <summary>Third-party (Teams, Webex, Google...) meeting events: start result, state, errors, support flags.</summary>
+        event EventHandler<IntegrationEventArgs> IntegrationEvent;
         /// <summary>A participant asked to control this room's camera (ErrorCode = userId); answer with <see cref="RespondRemoteCameraControl"/>.</summary>
         event EventHandler<SdkEventArgs> FarEndCameraControlRequested;
         event EventHandler<MeetingRecordingInfoEventArgs> MeetingRecordingInfoChanged;

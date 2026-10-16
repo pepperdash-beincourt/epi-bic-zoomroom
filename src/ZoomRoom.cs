@@ -704,6 +704,10 @@ namespace PepperDash.Essentials.Plugins
 			CrestronConsole.AddNewConsoleCommand(
 				s => ForPairingTarget(s, (r, arg) => r.CameraNameConsoleCommand(arg)),
 				"zoomCameraName", "Zoom Room camera names: [deviceKey] list | <n> <name>", ConsoleAccessLevelEnum.AccessOperator);
+
+			CrestronConsole.AddNewConsoleCommand(
+				s => ForPairingTarget(s, (r, arg) => r.InteropConsoleCommand(arg)),
+				"zoomInterop", "Teams/Webex/Google: [deviceKey] info|join <svc> <id> [pass]|leave", ConsoleAccessLevelEnum.AccessOperator);
 		}
 
 		// Picks the Zoom Room a pairing command is for and runs it with the rest of the arguments. A
@@ -823,6 +827,7 @@ namespace PepperDash.Essentials.Plugins
 			SubscribeHostControlEvents();
 			SubscribeBreakoutEvents();
 			SubscribeWebinarEvents();
+			SubscribeIntegrationEvents();
 			_controller.SharingStatusChanged += OnControllerSharingStatusChanged;
 			_controller.AirPlayStatusChanged += OnControllerAirPlayStatusChanged;
 			_controller.VideoPageStatusChanged += OnControllerVideoPageStatusChanged;

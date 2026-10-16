@@ -327,6 +327,7 @@ namespace PepperDash.Essentials.Plugins
             _sdk.BOParticipantsUpdated       += (s, e) => SafeRaise(() => BreakoutParticipantsUpdated?.Invoke(this, e));
             _sdk.WebinarAttendeeListReceived += (s, e) => SafeRaise(() => WebinarAttendeeListReceived?.Invoke(this, e));
             _sdk.WebinarCountsChanged        += (s, e) => SafeRaise(() => WebinarCountsChanged?.Invoke(this, e));
+            _sdk.IntegrationEvent            += (s, e) => SafeRaise(() => IntegrationEvent?.Invoke(this, e));
             _sdk.FarEndCameraControlRequest += (s, e) => SafeRaise(() => FarEndCameraControlRequested?.Invoke(this, e));
             _sdk.MeetingRecordingInfoChanged += (s, e) => SafeRaise(() => MeetingRecordingInfoChanged?.Invoke(this, e));
             _sdk.CameraPresetInfoChanged += (s, e) => SafeRaise(() => CameraPresetInfoChanged?.Invoke(this, e));
@@ -655,6 +656,13 @@ namespace PepperDash.Essentials.Plugins
         public bool ChangeSmartCameraMode(int mask, string deviceId = "")   => Guard(nameof(ChangeSmartCameraMode)) && Rc(nameof(ChangeSmartCameraMode), _sdk.ChangeSmartCameraMode(mask, deviceId));
         public CameraDevice[] GetCameras()              => _sdk.GetCameras();
         public CameraDevice GetCurrentCamera()          => _sdk.TryGetCurrentCamera(out var cam) ? cam : null;
+        public int JoinIntegrationMeeting(string meetingId, string password, ThirdPartyMeetingProvider provider)
+            => Guard(nameof(JoinIntegrationMeeting)) ? Rc(nameof(JoinIntegrationMeeting), _sdk.JoinIntegrationMeeting(meetingId, password, provider)) : -1;
+        public int LeaveIntegrationMeeting()        => Guard(nameof(LeaveIntegrationMeeting)) ? Rc(nameof(LeaveIntegrationMeeting), _sdk.LeaveIntegrationMeeting()) : -1;
+        public int MuteIntegrationAudio(bool mute)  => Guard(nameof(MuteIntegrationAudio)) ? Rc(nameof(MuteIntegrationAudio), _sdk.MuteIntegrationAudio(mute)) : -1;
+        public int StopIntegrationVideo(bool stop)  => Guard(nameof(StopIntegrationVideo)) ? Rc(nameof(StopIntegrationVideo), _sdk.StopIntegrationVideo(stop)) : -1;
+        public InterOperabilityInfo GetInterOperabilityInfo(ThirdPartyMeetingProvider provider)
+            => Guard(nameof(GetInterOperabilityInfo)) ? _sdk.GetInterOperabilityInfo(provider) : null;
         public int SetCameraDisplayName(string deviceId, string displayName)
             => Guard(nameof(SetCameraDisplayName)) ? Rc(nameof(SetCameraDisplayName), _sdk.SetCameraDisplayName(deviceId, displayName)) : -1;
         public bool SetCurrentCamera(string deviceId)   => Guard(nameof(SetCurrentCamera)) && Rc(nameof(SetCurrentCamera), _sdk.SetCurrentCamera(deviceId));
@@ -755,6 +763,7 @@ namespace PepperDash.Essentials.Plugins
         public event EventHandler<BOParticipantListEventArgs> BreakoutParticipantsUpdated;
         public event EventHandler<WebinarAttendeeListEventArgs> WebinarAttendeeListReceived;
         public event EventHandler<WebinarCountsEventArgs> WebinarCountsChanged;
+        public event EventHandler<IntegrationEventArgs> IntegrationEvent;
         public event EventHandler<SdkEventArgs> FarEndCameraControlRequested;
         public event EventHandler<MeetingRecordingInfoEventArgs> MeetingRecordingInfoChanged;
         public event EventHandler<CameraPresetInfoEventArgs> CameraPresetInfoChanged;
