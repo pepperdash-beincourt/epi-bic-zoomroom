@@ -871,7 +871,7 @@ namespace PepperDash.Essentials.Plugins
 			if (state == ConnectionState.Connected)
 			{
 				SeedSpeakerVolume();
-				ApplyFixedAudioLevels("controller connected");
+				ScheduleFixedAudioLevels("controller connected");
 
 				// Populate near-end cameras from the SDK device list (real device IDs).
 				SetUpCameras();
@@ -965,9 +965,29 @@ namespace PepperDash.Essentials.Plugins
 			MuteFeedback.FireUpdate();
 		}
 
+		private const int FixedAudioLevelsDelayMs = 3000;
+		private readonly object _fixedAudioLevelsLock = new object();
+		private CTimer _fixedAudioLevelsTimer;
+
+		// Sets the fixed levels a moment after the connect / meeting start, from a timer thread. Set
+		// straight from the MeetingStatusChanged handler, the level sets and the watchdog's health probe
+		// that followed them all failed (JASC hardware), which marked the room offline and reconnected
+		// it - over and over, as each reconnect started a meeting again. Repeated triggers within the
+		// delay set the levels once.
+		private void ScheduleFixedAudioLevels(string reason)
+		{
+			if (!_props.FixedSpeakerVolume.HasValue && !_props.FixedMicVolume.HasValue) return;
+
+			lock (_fixedAudioLevelsLock)
+			{
+				_fixedAudioLevelsTimer?.Stop();
+				_fixedAudioLevelsTimer = new CTimer(_ => ApplyFixedAudioLevels(reason), FixedAudioLevelsDelayMs);
+			}
+		}
+
 		// Sets the configured fixed speaker/mic levels (fixedSpeakerVolume / fixedMicVolume, percent).
-		// Both use the same 0-255 SDK scale; the mic reads are logged on either side of the set so the
-		// scale can be confirmed against the Zoom Room's own settings.
+		// Both use the same 0-255 SDK scale (mic confirmed on JASC: 90% reads back as 229); the mic is
+		// logged on either side of the set.
 		private void ApplyFixedAudioLevels(string reason)
 		{
 			if (_props.FixedSpeakerVolume.HasValue)
@@ -1022,7 +1042,7 @@ namespace PepperDash.Essentials.Plugins
 			{
 				case MeetingStatus.InMeeting:
 					{
-						ApplyFixedAudioLevels("meeting started");
+						ScheduleFixedAudioLevels("meeting started");
 
 						// See _hasConfirmedRosterAdmission: InMeeting alone doesn't mean the room has
 						// actually been admitted from a waiting room, so don't show Connected until the
