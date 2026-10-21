@@ -11,18 +11,23 @@ namespace PepperDash.Essentials.Plugins
 	/// <summary>
 	/// Multi-camera active speaker. In multi-camera mode each of the room's cameras is its own tile in
 	/// the meeting: tile 1 is the room itself, and every further tile is a child participant whose
-	/// ParentUserID is the room's user ID (Zoom names them "Room - 2", "Room - 3", ...). A controller
-	/// that knows who is talking picks the tile to show as active speaker with
-	/// <see cref="SetActiveSpeakerCamera"/>.
+	/// ParentUserID is the room's user ID (Zoom names them after the room with a number, e.g.
+	/// "JSC Lab Room 1"). A controller that knows who is talking picks the tile to show as active
+	/// speaker with <see cref="SetActiveSpeakerCamera"/>.
 	/// </summary>
 	public partial class ZoomRoom
 	{
-		private static readonly Regex CameraTileSuffix = new Regex(@"\s-\s(\d+)\s*$");
+		// "Room 2" (seen on hardware) or "Room - 2".
+		private static readonly Regex CameraTileSuffix = new Regex(@"\s(?:-\s)?(\d+)\s*$");
+
+		// Each child tile's number from the name Zoom gave it, kept for the meeting so a renamed tile
+		// keeps its place. Guarded by _participantLock.
+		private readonly Dictionary<int, int> _cameraTileNumberByUserId = new Dictionary<int, int>();
 
 		/// <summary>
 		/// The room's camera tiles in tile order: index 0 is the room itself (tile 1), then its child
-		/// tiles ordered by the number Zoom appends to their name, or by user ID when there is none.
-		/// Empty when not in a meeting.
+		/// tiles ordered by the number Zoom appended to their name when they joined, or by user ID when
+		/// there is none. Empty when not in a meeting.
 		/// </summary>
 		public List<ParticipantInfo> GetCameraTiles()
 		{
@@ -40,10 +45,16 @@ namespace PepperDash.Essentials.Plugins
 			}
 		}
 
-		private static int CameraTileNumber(ParticipantInfo info)
+		// Caller holds _participantLock.
+		private int CameraTileNumber(ParticipantInfo info)
 		{
+			int number;
+			if (_cameraTileNumberByUserId.TryGetValue(info.UserID, out number)) return number;
+
 			var match = CameraTileSuffix.Match(info.UserName ?? string.Empty);
-			return match.Success ? int.Parse(match.Groups[1].Value) : int.MaxValue;
+			number = match.Success ? int.Parse(match.Groups[1].Value) : int.MaxValue;
+			_cameraTileNumberByUserId[info.UserID] = number;
+			return number;
 		}
 
 		/// <summary>

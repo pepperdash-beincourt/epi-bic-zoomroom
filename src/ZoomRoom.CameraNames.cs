@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using Crestron.SimplSharp;
 using PepperDash.Core.Logging;
 
@@ -8,11 +10,91 @@ namespace PepperDash.Essentials.Plugins
 	/// Console: "zoomCameraName [deviceKey] list" numbers the room's cameras; "zoomCameraName
 	/// [deviceKey] &lt;n&gt; &lt;name&gt;" renames camera n. That name is NOT what the far end sees on a
 	/// multi-camera tile (checked on hardware): those tiles are the room's child participants, named
-	/// after the room. "zoomRenameTile [deviceKey] list | &lt;tile&gt; &lt;name&gt;" renames a tile for the
-	/// current meeting instead (spike).
+	/// after the room. Renaming the tile's participant for the meeting is what changes the label
+	/// (checked on hardware): <see cref="SetCameraTileNames"/> keeps the tiles named in every meeting,
+	/// and "zoomRenameTile [deviceKey] list | &lt;tile&gt; &lt;name&gt;" renames one by hand.
 	/// </summary>
 	public partial class ZoomRoom
 	{
+		private const int CameraTileNameDelayMs = 1500;
+
+		private readonly object _cameraTileNamesLock = new object();
+		private string[] _cameraTileNames = new string[0];
+		// Tiles (by user ID) already renamed, or tried, in this meeting - each is tried once, again only
+		// after the room becomes or stops being host/co-host (Zoom may refuse the rename otherwise).
+		private readonly HashSet<int> _cameraTileRenamesTried = new HashSet<int>();
+		private bool _cameraTileRenamesTriedAsHost;
+		private CTimer _cameraTileNameTimer;
+
+		/// <summary>
+		/// Sets the names the room's camera tiles carry in a meeting: index 0 is tile 1 (the room
+		/// itself), index 1 tile 2, and so on, as in <see cref="GetCameraTiles"/>. A null or empty entry
+		/// leaves that tile's name alone. Applied straight away in a meeting, and to each tile as it
+		/// joins one. The room calls this with the camera names its UI shows.
+		/// </summary>
+		public void SetCameraTileNames(string[] names)
+		{
+			lock (_cameraTileNamesLock)
+			{
+				_cameraTileNames = names ?? new string[0];
+				_cameraTileRenamesTried.Clear();
+			}
+
+			this.LogInformation("Camera tile names: {Names}",
+				string.Join(", ", (names ?? new string[0]).Select((n, i) => string.Format("{0}=\"{1}\"", i + 1, n))));
+			ScheduleCameraTileNames();
+		}
+
+		// Renames shortly after the last participant change, so the room's camera tiles have all joined.
+		private void ScheduleCameraTileNames()
+		{
+			lock (_cameraTileNamesLock)
+			{
+				if (_cameraTileNames.Length == 0 || !IsInCall) return;
+				_cameraTileNameTimer?.Stop();
+				_cameraTileNameTimer = new CTimer(_ => ApplyCameraTileNames(), CameraTileNameDelayMs);
+			}
+		}
+
+		private void ApplyCameraTileNames()
+		{
+			if (!IsInCall) return;
+
+			var tiles = GetCameraTiles();
+			var renames = new List<KeyValuePair<int, string>>();
+
+			lock (_cameraTileNamesLock)
+			{
+				var asHost = _sdkIsHost || _sdkIsCoHost;
+				if (asHost != _cameraTileRenamesTriedAsHost)
+				{
+					_cameraTileRenamesTried.Clear();
+					_cameraTileRenamesTriedAsHost = asHost;
+				}
+
+				for (var i = 0; i < tiles.Count && i < _cameraTileNames.Length; i++)
+				{
+					var name = _cameraTileNames[i];
+					if (string.IsNullOrWhiteSpace(name) || tiles[i].UserName == name) continue;
+					if (!_cameraTileRenamesTried.Add(tiles[i].UserID)) continue;
+					renames.Add(new KeyValuePair<int, string>(i + 1, name));
+				}
+			}
+
+			// SDK calls stay outside the locks.
+			foreach (var rename in renames)
+				RenameCameraTile(rename.Key, rename.Value);
+		}
+
+		private void ResetCameraTileNames()
+		{
+			lock (_cameraTileNamesLock)
+			{
+				_cameraTileNameTimer?.Stop();
+				_cameraTileNameTimer = null;
+				_cameraTileRenamesTried.Clear();
+			}
+		}
 		/// <summary>
 		/// Renames a camera in the Zoom Room's settings. Returns false when the camera is unknown or
 		/// the SDK rejects the name (code 141 = this camera's display name can't be set).
@@ -62,8 +144,8 @@ namespace PepperDash.Essentials.Plugins
 		/// <summary>
 		/// Renames camera tile <paramref name="tile"/> (1 = the room itself, 2.. = its extra camera tiles,
 		/// as in <see cref="GetCameraTiles"/>) for the current meeting - the name the far end sees on that
-		/// tile. Spike: Zoom may refuse it for a multi-camera tile (402) or without host/co-host. Returns
-		/// the SDK result code, or -1 when not in a meeting or the tile does not exist.
+		/// tile. Zoom may refuse it for a multi-camera tile (402) or without host/co-host. Returns the SDK
+		/// result code, or -1 when not in a meeting or the tile does not exist.
 		/// </summary>
 		public int RenameCameraTile(int tile, string name)
 		{

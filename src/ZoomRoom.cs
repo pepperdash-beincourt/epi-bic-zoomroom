@@ -1284,11 +1284,13 @@ namespace PepperDash.Essentials.Plugins
 			ResetHostControls();
 			ResetBreakout();
 			ResetWebinar();
+			ResetCameraTileNames();
 			lock (_participantLock)
 			{
 				_pinnedUserScreens.Clear();
 				_spotlightedUserIds.Clear();
 				_participantInfoByUserId.Clear();
+				_cameraTileNumberByUserId.Clear();
 				Participants.CurrentParticipants = new System.Collections.Generic.List<Participant>();
 			}
 			RaisePinSpotlightChanged();
@@ -1502,6 +1504,7 @@ namespace PepperDash.Essentials.Plugins
 			RefreshRosterAdmissionFromParticipants();
 			UpdateFarEndCameras();
 			RefreshBreakoutRoster();
+			ScheduleCameraTileNames();
 		}
 
 		private void OnControllerHostChanged(object sender, SdkEventArgs e)
