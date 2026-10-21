@@ -89,6 +89,24 @@ namespace PepperDash.Essentials.Plugins
         [JsonProperty("hiddenContactNames")]
         public System.Collections.Generic.List<string> HiddenContactNames { get; set; }
 
+        /// <summary>
+        /// Optional, percent 0-100. Holds the Zoom Room's own speaker (audio output) volume at this
+        /// level: it is set whenever the controller connects and when a meeting starts, and the
+        /// device's volume and mute commands leave it alone. The room feeds the DSP at a nominal level
+        /// and all level control stays on the DSP, keeping the gain structure fixed. Unset = the
+        /// speaker volume follows the volume commands as before.
+        /// </summary>
+        [JsonProperty("fixedSpeakerVolume", NullValueHandling = NullValueHandling.Ignore)]
+        public int? FixedSpeakerVolume { get; set; }
+
+        /// <summary>
+        /// Optional, percent 0-100. Holds the Zoom Room's own microphone (audio input) volume at this
+        /// level, set whenever the controller connects and when a meeting starts. Unset = left as the
+        /// Zoom Room has it.
+        /// </summary>
+        [JsonProperty("fixedMicVolume", NullValueHandling = NullValueHandling.Ignore)]
+        public int? FixedMicVolume { get; set; }
+
         // communicationMonitorProperties is kept for back-compat but is no longer used —
         // the SDK is event-driven and requires no polling.
     }

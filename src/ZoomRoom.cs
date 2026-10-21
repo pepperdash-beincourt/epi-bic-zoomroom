@@ -871,6 +871,7 @@ namespace PepperDash.Essentials.Plugins
 			if (state == ConnectionState.Connected)
 			{
 				SeedSpeakerVolume();
+				ApplyFixedAudioLevels("controller connected");
 
 				// Populate near-end cameras from the SDK device list (real device IDs).
 				SetUpCameras();
@@ -964,6 +965,43 @@ namespace PepperDash.Essentials.Plugins
 			MuteFeedback.FireUpdate();
 		}
 
+		// Sets the configured fixed speaker/mic levels (fixedSpeakerVolume / fixedMicVolume, percent).
+		// Both use the same 0-255 SDK scale; the mic reads are logged on either side of the set so the
+		// scale can be confirmed against the Zoom Room's own settings.
+		private void ApplyFixedAudioLevels(string reason)
+		{
+			if (_props.FixedSpeakerVolume.HasValue)
+			{
+				var level = PercentToLevel(_props.FixedSpeakerVolume.Value);
+				_sdkSpeakerVolumeLevel = level;
+				_sdkSpeakerMuted = false;
+				var ok = _controller.SetSpeakerVolume(LevelToSdkVolume(level));
+				this.LogInformation("Fixed speaker volume {Percent}% ({Reason}): set {Result}",
+					_props.FixedSpeakerVolume.Value, reason, ok ? "ok" : "failed");
+				VolumeLevelFeedback.FireUpdate();
+				MuteFeedback.FireUpdate();
+			}
+
+			if (_props.FixedMicVolume.HasValue)
+			{
+				var before = _controller.GetMicrophoneVolume();
+				var ok = _controller.SetMicrophoneVolume(LevelToSdkVolume(PercentToLevel(_props.FixedMicVolume.Value)));
+				this.LogInformation("Fixed mic volume {Percent}% ({Reason}): before {Before}, set {Result}, after {After}",
+					_props.FixedMicVolume.Value, reason, before, ok ? "ok" : "failed", _controller.GetMicrophoneVolume());
+			}
+		}
+
+		private static ushort PercentToLevel(int percent) =>
+			(ushort)Math.Round(Math.Max(0, Math.Min(100, percent)) / 100f * 65535f);
+
+		// True when fixedSpeakerVolume holds the speaker; the volume/mute command is then ignored.
+		private bool SpeakerVolumeIsFixed(string command)
+		{
+			if (!_props.FixedSpeakerVolume.HasValue) return false;
+			this.LogDebug("{Command} ignored: speaker volume is fixed at {Percent}%", command, _props.FixedSpeakerVolume.Value);
+			return true;
+		}
+
 		private void OnControllerMeetingStatusChanged(object sender, SdkEventArgs e)
 		{
 			var status = (MeetingStatus)e.ErrorCode;
@@ -984,6 +1022,8 @@ namespace PepperDash.Essentials.Plugins
 			{
 				case MeetingStatus.InMeeting:
 					{
+						ApplyFixedAudioLevels("meeting started");
+
 						// See _hasConfirmedRosterAdmission: InMeeting alone doesn't mean the room has
 						// actually been admitted from a waiting room, so don't show Connected until the
 						// roster confirms it - until then this is functionally identical to
@@ -1816,6 +1856,7 @@ namespace PepperDash.Essentials.Plugins
 
 		public override void MuteOff()
 		{
+			if (SpeakerVolumeIsFixed(nameof(MuteOff))) return;
 			if (!_sdkSpeakerMuted) return;
 			_sdkSpeakerMuted = false;
 			_controller.SetSpeakerVolume(LevelToSdkVolume(_sdkSpeakerVolumeLevel));
@@ -1824,6 +1865,7 @@ namespace PepperDash.Essentials.Plugins
 
 		public override void MuteOn()
 		{
+			if (SpeakerVolumeIsFixed(nameof(MuteOn))) return;
 			if (_sdkSpeakerMuted) return;
 			_sdkSpeakerMuted = true;
 			_controller.SetSpeakerVolume(0f); // no discrete SDK output-mute; zero the volume, restore on unmute
@@ -1869,6 +1911,7 @@ namespace PepperDash.Essentials.Plugins
 		/// <param name="level">level from slider (0-65535 range)</param>
 		public override void SetVolume(ushort level)
 		{
+			if (SpeakerVolumeIsFixed(nameof(SetVolume))) return;
 			_sdkSpeakerVolumeLevel = level;
 			_sdkSpeakerMuted = false; // actively setting volume clears mute
 			_controller.SetSpeakerVolume(LevelToSdkVolume(level));

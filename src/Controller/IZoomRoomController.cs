@@ -151,6 +151,12 @@ namespace PepperDash.Essentials.Plugins
         /// <summary>Gets the room speaker (audio output) volume in the SDK's native float scale; returns -1 on failure.</summary>
         float GetSpeakerVolume();
 
+        /// <summary>Sets the room microphone (audio input) volume, in the SDK's native float scale.</summary>
+        bool SetMicrophoneVolume(float volume);
+
+        /// <summary>Gets the room microphone (audio input) volume in the SDK's native float scale; returns -1 on failure.</summary>
+        float GetMicrophoneVolume();
+
         // ── Video ─────────────────────────────────────────────────────────────
 
         bool SetVideoState(bool start);

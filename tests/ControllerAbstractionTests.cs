@@ -95,6 +95,8 @@ public class ControllerAbstractionTests
     [InlineData("AllowAttendeesUnmute")]
     [InlineData("SetSpeakerVolume")]
     [InlineData("GetSpeakerVolume")]
+    [InlineData("SetMicrophoneVolume")]
+    [InlineData("GetMicrophoneVolume")]
     public void IZoomRoomController_Has_Audio_Method(string methodName)
     {
         ControllerInterfaceType

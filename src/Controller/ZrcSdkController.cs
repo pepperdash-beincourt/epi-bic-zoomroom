@@ -641,6 +641,8 @@ namespace PepperDash.Essentials.Plugins
         }
         public bool SetSpeakerVolume(float volume)             => Guard(nameof(SetSpeakerVolume)) && Rc(nameof(SetSpeakerVolume), _sdk.SetSpeakerVolume(volume));
         public float GetSpeakerVolume()                        => _sdk.GetSpeakerVolume(out var v) ? v : -1f;
+        public bool SetMicrophoneVolume(float volume)          => Guard(nameof(SetMicrophoneVolume)) && Rc(nameof(SetMicrophoneVolume), _sdk.SetMicrophoneVolume(volume));
+        public float GetMicrophoneVolume()                     => _sdk.GetMicrophoneVolume(out var v) ? v : -1f;
 
         // ── Video ─────────────────────────────────────────────────────────────
 
