@@ -706,6 +706,10 @@ namespace PepperDash.Essentials.Plugins
 				"zoomCameraName", "Zoom Room camera names: [deviceKey] list | <n> <name>", ConsoleAccessLevelEnum.AccessOperator);
 
 			CrestronConsole.AddNewConsoleCommand(
+				s => ForPairingTarget(s, (r, arg) => r.RenameTileConsoleCommand(arg)),
+				"zoomRenameTile", "Rename a camera tile in this meeting: [deviceKey] list | <tile> <name>", ConsoleAccessLevelEnum.AccessOperator);
+
+			CrestronConsole.AddNewConsoleCommand(
 				s => ForPairingTarget(s, (r, arg) => r.InteropConsoleCommand(arg)),
 				"zoomInterop", "Teams/Webex/Google: [deviceKey] info|join <svc> <id> [pass]|leave", ConsoleAccessLevelEnum.AccessOperator);
 		}

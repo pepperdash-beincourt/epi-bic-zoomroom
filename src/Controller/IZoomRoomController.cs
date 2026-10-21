@@ -253,6 +253,9 @@ namespace PepperDash.Essentials.Plugins
         /// <summary>Multi-camera: makes one of the room's own camera tiles (a child participant) the active speaker. Returns the SDK code.</summary>
         int SetMyChildAsActiveSpeaker(int userId);
 
+        /// <summary>Renames a participant for the current meeting, e.g. one of the room's camera tiles. Returns the SDK code.</summary>
+        int RenameUser(int userId, string name);
+
         // ── Share ─────────────────────────────────────────────────────────────
 
         bool StopShare();
