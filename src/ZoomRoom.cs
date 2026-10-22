@@ -1043,6 +1043,7 @@ namespace PepperDash.Essentials.Plugins
 				case MeetingStatus.InMeeting:
 					{
 						ScheduleFixedAudioLevels("meeting started");
+						ScheduleBreakoutEnabledCheck();
 
 						// See _hasConfirmedRosterAdmission: InMeeting alone doesn't mean the room has
 						// actually been admitted from a waiting room, so don't show Connected until the
@@ -1533,6 +1534,7 @@ namespace PepperDash.Essentials.Plugins
 			this.LogDebug("HostChanged: isHost={IsHost}", _sdkIsHost);
 			UpdateMeetingInfo();
 			NoteRoleChange();
+			ScheduleBreakoutEnabledCheck();
 		}
 
 		/// <summary>
@@ -1551,6 +1553,7 @@ namespace PepperDash.Essentials.Plugins
 			this.LogDebug("Host state from roster: isHost={IsHost}", isHost);
 			UpdateMeetingInfo();
 			NoteRoleChange();
+			ScheduleBreakoutEnabledCheck();
 		}
 
 		/// <summary>
@@ -1580,6 +1583,7 @@ namespace PepperDash.Essentials.Plugins
 			this.LogDebug("Co-host state from roster: isCoHost={IsCoHost}", isCoHost);
 			CoHostChanged?.Invoke(this, isCoHost);
 			NoteRoleChange();
+			ScheduleBreakoutEnabledCheck();
 		}
 
 		// Diagnostic (Debug): logs the raw role flags the SDK delivers for each participant in a

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Crestron.SimplSharp;
 using Newtonsoft.Json;
 using PepperDash.Core.Logging;
 using PepperDash.ZoomRoom.Sdk;
@@ -62,9 +63,18 @@ namespace PepperDash.Essentials.Plugins
 		private string _boMyStatus = "unknown";
 		private string _boMyRoomId = string.Empty;
 		private int _boTimerRemaining = -1;
+		private bool? _boEnabled;
+		private CTimer _boEnabledTimer;
+		private const int BreakoutEnabledCheckDelayMs = 2000;
 
 		/// <summary>Raised when anything the breakout page shows changes.</summary>
 		public event EventHandler BreakoutChanged;
+
+		/// <summary>
+		/// Whether breakout rooms are enabled in the current meeting, or null until known. When false,
+		/// Zoom rejects every breakout action, so the page shows breakouts as unavailable.
+		/// </summary>
+		public bool? BreakoutEnabled => _boEnabled;
 
 		/// <summary>unknown | invalid | edit | started | stopping | ended</summary>
 		public string BreakoutStatus => _sdkBreakoutStatus;
@@ -113,6 +123,7 @@ namespace PepperDash.Essentials.Plugins
 				case 4: text = "ended"; break;
 				default: text = "invalid"; break;
 			}
+			ScheduleBreakoutEnabledCheck();
 			if (text == _sdkBreakoutStatus) return;
 			_sdkBreakoutStatus = text;
 			this.LogInformation("Breakout status ({Source}): {Status}", source, text);
@@ -145,9 +156,39 @@ namespace PepperDash.Essentials.Plugins
 			BreakoutChanged?.Invoke(this, EventArgs.Empty);
 		}
 
+		// Asks Zoom whether breakouts are enabled a moment after a trigger (meeting start, breakout status
+		// or role change), from a timer thread: SDK calls made inside SDK event handlers fail (see
+		// ScheduleFixedAudioLevels). Triggers within the delay ask once.
+		private void ScheduleBreakoutEnabledCheck()
+		{
+			lock (_breakoutLock)
+			{
+				_boEnabledTimer?.Stop();
+				_boEnabledTimer = new CTimer(_ => RefreshBreakoutEnabled(), BreakoutEnabledCheckDelayMs);
+			}
+		}
+
+		private void RefreshBreakoutEnabled()
+		{
+			if (!IsInCall) return;
+
+			if (!_controller.TryGetBreakoutEnabled(out var enabled))
+			{
+				this.LogDebug("Breakout enabled query failed; keeping {Enabled}", _boEnabled);
+				return;
+			}
+
+			if (_boEnabled == enabled) return;
+			_boEnabled = enabled;
+			this.LogInformation("Breakout rooms are {State} in this meeting", enabled ? "enabled" : "not enabled");
+			BreakoutChanged?.Invoke(this, EventArgs.Empty);
+		}
+
 		private void ResetBreakout()
 		{
-			var changed = _sdkBreakoutStatus != "unknown" || _boRooms.Count > 0 || _boRosterByGuid.Count > 0 || _boOptions != null;
+			lock (_breakoutLock) _boEnabledTimer?.Stop();
+			var changed = _sdkBreakoutStatus != "unknown" || _boRooms.Count > 0 || _boRosterByGuid.Count > 0 || _boOptions != null || _boEnabled != null;
+			_boEnabled = null;
 			_sdkBreakoutStatus = "unknown";
 			_boMyStatus = "unknown";
 			_boMyRoomId = string.Empty;

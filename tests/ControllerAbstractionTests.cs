@@ -227,6 +227,15 @@ public class ControllerAbstractionTests
                 "IZoomRoomController must expose ListMeeting for bookings/schedule awareness");
     }
 
+    [Fact]
+    public void IZoomRoomController_Has_TryGetBreakoutEnabled_Method()
+    {
+        ControllerInterfaceType
+            .GetMethods()
+            .Should().Contain(m => m.Name == "TryGetBreakoutEnabled",
+                "IZoomRoomController must expose TryGetBreakoutEnabled so the breakout page can show breakouts as unavailable");
+    }
+
     // ── Method return types ───────────────────────────────────────────────────
 
     [Theory]

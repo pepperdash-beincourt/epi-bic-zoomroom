@@ -404,6 +404,12 @@ namespace PepperDash.Essentials.Plugins
             return !_disposed && _sdk.TryGetMeetingInfo(out info);
         }
 
+        public bool TryGetBreakoutEnabled(out bool enabled)
+        {
+            enabled = false;
+            return !_disposed && _sdk.IsBOEnabled(out enabled);
+        }
+
         // ── Pairing ───────────────────────────────────────────────────────────
 
         public bool PairWithActivationCode(string activationCode)

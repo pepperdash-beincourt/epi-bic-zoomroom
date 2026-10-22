@@ -50,6 +50,10 @@ namespace PepperDash.Essentials.Plugins
         /// <returns>False when not in a meeting or the query failed.</returns>
         bool TryGetMeetingInfo(out CurrentMeetingInfo info);
 
+        /// <summary>Whether the breakout room feature is enabled in the current meeting.</summary>
+        /// <returns>False when not in a meeting or the query failed.</returns>
+        bool TryGetBreakoutEnabled(out bool enabled);
+
         // ── Pairing ───────────────────────────────────────────────────────────
 
         bool PairWithActivationCode(string activationCode);

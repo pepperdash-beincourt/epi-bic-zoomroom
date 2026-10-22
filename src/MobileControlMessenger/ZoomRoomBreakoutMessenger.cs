@@ -12,7 +12,7 @@ namespace PepperDash.Essentials.AppServer.Messengers
 {
     /// <summary>
     /// Mobile Control messenger for breakout rooms (see ZoomRoom.Breakout.cs).
-    /// Status: <c>{ breakoutStatus, breakoutRooms: [{id, name, participants: [...]}], breakoutUnassigned: [...],
+    /// Status: <c>{ breakoutStatus, breakoutEnabled, breakoutRooms: [{id, name, participants: [...]}], breakoutUnassigned: [...],
     /// breakoutOptions, breakoutMyStatus, breakoutMyRoomId, breakoutTimerRemaining }</c>.
     /// Actions (host): /refreshBreakout, /createBreakoutRooms {count, assignType}, /addBreakoutRoom,
     /// /deleteBreakoutRoom {value: id}, /renameBreakoutRoom {id, name}, /assignToBreakoutRoom {userGuids: [], roomId},
@@ -104,6 +104,7 @@ namespace PepperDash.Essentials.AppServer.Messengers
             return new ZoomRoomBreakoutStateMessage
             {
                 BreakoutStatus = _codec.BreakoutStatus,
+                BreakoutEnabled = _codec.BreakoutEnabled,
                 BreakoutRooms = rooms,
                 BreakoutUnassigned = unassigned,
                 BreakoutOptions = _codec.BreakoutOptions,
@@ -117,6 +118,8 @@ namespace PepperDash.Essentials.AppServer.Messengers
     public class ZoomRoomBreakoutStateMessage : DeviceStateMessageBase
     {
         [JsonProperty("breakoutStatus")] public string BreakoutStatus { get; set; }
+        /// <summary>Whether breakout rooms are enabled in the current meeting; null until known.</summary>
+        [JsonProperty("breakoutEnabled")] public bool? BreakoutEnabled { get; set; }
         [JsonProperty("breakoutRooms")] public List<BreakoutRoomState> BreakoutRooms { get; set; } = new List<BreakoutRoomState>();
         [JsonProperty("breakoutUnassigned")] public List<BreakoutParticipantState> BreakoutUnassigned { get; set; } = new List<BreakoutParticipantState>();
         /// <summary>Null until the SDK has reported options.</summary>
