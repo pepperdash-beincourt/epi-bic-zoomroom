@@ -1315,6 +1315,7 @@ namespace PepperDash.Essentials.Plugins
 			ResetBreakout();
 			ResetWebinar();
 			ResetCameraTileNames();
+			ResetShareLayout();
 			lock (_participantLock)
 			{
 				_pinnedUserScreens.Clear();
@@ -1618,6 +1619,7 @@ namespace PepperDash.Essentials.Plugins
 			SharingContentIsOnFeedback.FireUpdate();
 			ReceivingContent.FireUpdate();
 			CanSwapContentWithThumbnailFeedback.FireUpdate();
+			OnShareStateForShareLayout();
 		}
 
 		private void OnControllerAirPlayStatusChanged(object sender, AirPlayStatusEventArgs e)
@@ -1705,6 +1707,7 @@ namespace PepperDash.Essentials.Plugins
 
 			ScreenLayoutStatusChanged?.Invoke(this, e);
 			OnLayoutInfoChanged();
+			OnShareStateForShareLayout();
 		}
 
 		// DynamicLayoutType last reported by the SDK (SpeakersOnBottom=0/Middle=1/Top=2, Unknown=-1).
