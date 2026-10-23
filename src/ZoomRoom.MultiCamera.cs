@@ -20,6 +20,9 @@ namespace PepperDash.Essentials.Plugins
 	{
 		private const int MultiCameraApplyDelayMs = 1000;
 
+		// After a select in a meeting, how long the next select waits for that camera's tile to join.
+		private const int MultiCameraJoinWaitMs = 4000;
+
 		private readonly object _multiCameraLock = new object();
 		private readonly Dictionary<string, bool> _multiCameraWanted = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 		private CTimer _multiCameraTimer;
@@ -60,8 +63,10 @@ namespace PepperDash.Essentials.Plugins
 		{
 			if ((ConnectionState)_controller.GetConnectionState() != ConnectionState.Connected) return;
 
+			// Deselects first. In a meeting, selects go one at a time so the tile that joins next is
+			// known to be that camera (ExpectCameraTile); the rest follow once it has had time to join.
 			KeyValuePair<string, bool>[] wanted;
-			lock (_multiCameraLock) wanted = _multiCameraWanted.ToArray();
+			lock (_multiCameraLock) wanted = _multiCameraWanted.OrderBy(e => e.Value).ToArray();
 
 			var cameras = _controller.GetCameras() ?? new CameraDevice[0];
 			foreach (var entry in wanted)
@@ -76,9 +81,20 @@ namespace PepperDash.Essentials.Plugins
 
 				if (camera.IsSelectedAsMultiDevice == entry.Value) continue;
 
+				if (entry.Value) ExpectCameraTile(entry.Key);
 				var code = _controller.SelectMultipleCamera(camera.Id, entry.Value);
 				this.LogInformation("Multi-camera: {Action} \"{Camera}\" (input '{Input}') result={Code}",
 					entry.Value ? "select" : "deselect", CameraLabel(camera), entry.Key, code);
+
+				if (!entry.Value) continue;
+				if (code != 0)
+				{
+					ForgetExpectedCameraTile(entry.Key);
+					continue;
+				}
+				if (!IsInCall) continue;
+				ScheduleMultiCameraApply(MultiCameraJoinWaitMs);
+				return;
 			}
 		}
 
@@ -129,8 +145,11 @@ namespace PepperDash.Essentials.Plugins
 
 			var camera = cameras[number - 1];
 			var on = parts[1].Equals("on", StringComparison.OrdinalIgnoreCase);
+			var inputKey = _props.MultiCameraInputs?.FirstOrDefault(kv => FindCamera(new[] { camera }, kv.Value) != null).Key;
+			if (on) ExpectCameraTile(inputKey);
 			var code = _controller.SelectMultipleCamera(camera.Id, on);
 			this.LogInformation("zoomMultiCamera: {Action} \"{Camera}\" result={Code}", on ? "select" : "deselect", CameraLabel(camera), code);
+			if (on && code != 0) ForgetExpectedCameraTile(inputKey);
 			CrestronConsole.ConsoleCommandResponse("Camera {0} \"{1}\" multi-camera {2}: result {3}{4}\r\n", number, CameraLabel(camera), on ? "on" : "off", code,
 				code == 0 ? " (ok)" : code == 136 ? " (multi-camera not enabled)" : code == 137 ? " (multi-camera count at its maximum)" : code == 138 ? " (this camera can't be selected)" : " (see log)");
 		}

@@ -20,9 +20,10 @@ namespace PepperDash.Essentials.Plugins
 
 		private readonly object _cameraTileNamesLock = new object();
 		private string[] _cameraTileNames = new string[0];
-		// Tiles (by user ID) already renamed, or tried, in this meeting - each is tried once, again only
-		// after the room becomes or stops being host/co-host (Zoom may refuse the rename otherwise).
-		private readonly HashSet<int> _cameraTileRenamesTried = new HashSet<int>();
+		// The tile each child (by user ID) was last renamed, or tried, for in this meeting - each is tried
+		// once per tile, again only after the room becomes or stops being host/co-host (Zoom may refuse
+		// the rename otherwise) or when the child moves to another tile (its camera became known).
+		private readonly Dictionary<int, int> _cameraTileRenamesTried = new Dictionary<int, int>();
 		private bool _cameraTileRenamesTriedAsHost;
 		private CTimer _cameraTileNameTimer;
 
@@ -75,8 +76,11 @@ namespace PepperDash.Essentials.Plugins
 				for (var i = 0; i < tiles.Count && i < _cameraTileNames.Length; i++)
 				{
 					var name = _cameraTileNames[i];
-					if (string.IsNullOrWhiteSpace(name) || tiles[i].UserName == name) continue;
-					if (!_cameraTileRenamesTried.Add(tiles[i].UserID)) continue;
+					if (tiles[i] == null || string.IsNullOrWhiteSpace(name) || tiles[i].UserName == name) continue;
+
+					int triedFor;
+					if (_cameraTileRenamesTried.TryGetValue(tiles[i].UserID, out triedFor) && triedFor == i + 1) continue;
+					_cameraTileRenamesTried[tiles[i].UserID] = i + 1;
 					renames.Add(new KeyValuePair<int, string>(i + 1, name));
 				}
 			}
@@ -150,9 +154,10 @@ namespace PepperDash.Essentials.Plugins
 		public int RenameCameraTile(int tile, string name)
 		{
 			var tiles = GetCameraTiles();
-			if (!IsInCall || tile < 1 || tile > tiles.Count)
+			if (!IsInCall || tile < 1 || tile > tiles.Count || tiles[tile - 1] == null)
 			{
-				this.LogWarning("RenameCameraTile({Tile}) ignored: in a meeting={InCall}, the room has {Count} camera tile(s)", tile, IsInCall, tiles.Count);
+				this.LogWarning("RenameCameraTile({Tile}) ignored: in a meeting={InCall}, that camera tile is not in the meeting ({Count} tile(s))",
+					tile, IsInCall, tiles.Count(t => t != null));
 				return -1;
 			}
 
@@ -177,7 +182,12 @@ namespace PepperDash.Essentials.Plugins
 				}
 
 				for (var i = 0; i < tiles.Count; i++)
-					CrestronConsole.ConsoleCommandResponse("tile {0}: userId={1} name=\"{2}\"\r\n", i + 1, tiles[i].UserID, tiles[i].UserName);
+				{
+					if (tiles[i] == null)
+						CrestronConsole.ConsoleCommandResponse("tile {0}: no camera in the meeting\r\n", i + 1);
+					else
+						CrestronConsole.ConsoleCommandResponse("tile {0}: userId={1} name=\"{2}\"\r\n", i + 1, tiles[i].UserID, tiles[i].UserName);
+				}
 				return;
 			}
 

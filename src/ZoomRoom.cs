@@ -1322,6 +1322,8 @@ namespace PepperDash.Essentials.Plugins
 				_participantInfoByUserId.Clear();
 				_cameraTileNumberByUserId.Clear();
 				_cameraTileZoomNameByUserId.Clear();
+				_cameraTileInputByUserId.Clear();
+				_expectedCameraTileInputs.Clear();
 				Participants.CurrentParticipants = new System.Collections.Generic.List<Participant>();
 			}
 			RaisePinSpotlightChanged();
@@ -2900,23 +2902,23 @@ namespace PepperDash.Essentials.Plugins
 		/// </summary>
 		private void TrackParticipantInfo(ParticipantInfo[] participants, bool fullReplace, bool isLeave)
 		{
-			if (fullReplace)
-			{
-				_participantInfoByUserId.Clear();
-				foreach (var info in participants)
-					_participantInfoByUserId[info.UserID] = info;
-			}
-			else if (isLeave)
+			if (isLeave)
 			{
 				foreach (var info in participants)
+				{
 					_participantInfoByUserId.Remove(info.UserID);
+					_cameraTileInputByUserId.Remove(info.UserID);
+				}
 				ForgetPinSpotlight(participants.Select(info => info.UserID));
+				return;
 			}
-			else
-			{
-				foreach (var info in participants)
-					_participantInfoByUserId[info.UserID] = info;
-			}
+
+			var joined = participants.Where(info => !_participantInfoByUserId.ContainsKey(info.UserID)).Select(info => info.UserID).ToList();
+			if (fullReplace)
+				_participantInfoByUserId.Clear();
+			foreach (var info in participants)
+				_participantInfoByUserId[info.UserID] = info;
+			LearnCameraTileInputs(joined);
 		}
 
 		/// <summary>

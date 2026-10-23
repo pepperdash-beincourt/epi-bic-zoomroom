@@ -28,10 +28,25 @@ namespace PepperDash.Essentials.Plugins
 		// "zoomActiveSpeaker list" to work out which camera a tile is. Guarded by _participantLock.
 		private readonly Dictionary<int, string> _cameraTileZoomNameByUserId = new Dictionary<int, string>();
 
+		// How long after this plugin turns a camera on for multi-camera its tile may join and be taken
+		// as that camera (seen on hardware: about a second).
+		private const int CameraTileJoinWindowMs = 10000;
+
+		// The camera input each child tile shows, learned when the tile joined just after this plugin
+		// turned that input's camera on. Zoom's number on a child is not tied to a camera. Guarded by
+		// _participantLock.
+		private readonly Dictionary<int, string> _cameraTileInputByUserId = new Dictionary<int, string>();
+
+		// Camera inputs turned on for multi-camera whose tile has not joined yet, oldest first.
+		// Guarded by _participantLock.
+		private readonly List<KeyValuePair<string, DateTime>> _expectedCameraTileInputs = new List<KeyValuePair<string, DateTime>>();
+
 		/// <summary>
-		/// The room's camera tiles in tile order: index 0 is the room itself (tile 1), then its child
-		/// tiles ordered by the number Zoom appended to their name when they joined, or by user ID when
-		/// there is none. Empty when not in a meeting.
+		/// The room's camera tiles by tile number: index 0 is the room itself (tile 1), index N - 1 the
+		/// camera on the codec's Nth camera input (usbInN). A child tile whose camera input is known
+		/// takes that input's tile; the others are placed by the number Zoom appended to their name
+		/// (see <see cref="CameraTileLayout"/>). An entry is null for a tile with no camera in the
+		/// meeting. Empty when not in a meeting.
 		/// </summary>
 		public List<ParticipantInfo> GetCameraTiles()
 		{
@@ -40,12 +55,85 @@ namespace PepperDash.Essentials.Plugins
 				var self = _participantInfoByUserId.Values.FirstOrDefault(p => p.IsMySelf);
 				if (self == null) return new List<ParticipantInfo>();
 
-				var tiles = new List<ParticipantInfo> { self };
-				tiles.AddRange(_participantInfoByUserId.Values
+				var children = _participantInfoByUserId.Values
 					.Where(p => !p.IsMySelf && p.ParentUserID != 0 && p.ParentUserID == self.UserID)
-					.OrderBy(p => CameraTileNumber(p))
-					.ThenBy(p => p.UserID));
+					.ToList();
+				var tileByUser = CameraTileLayout.Assign(children.Select(p =>
+					new CameraTileLayout.Child(p.UserID, CameraTileNumber(p), KnownCameraTile(p.UserID))));
+
+				var tiles = new List<ParticipantInfo>(new ParticipantInfo[tileByUser.Count == 0 ? 1 : tileByUser.Values.Max()]);
+				tiles[0] = self;
+				foreach (var child in children)
+					tiles[tileByUser[child.UserID] - 1] = child;
 				return tiles;
+			}
+		}
+
+		// Caller holds _participantLock.
+		private int KnownCameraTile(int userId)
+		{
+			string input;
+			return _cameraTileInputByUserId.TryGetValue(userId, out input) ? CameraInputTile(input) : 0;
+		}
+
+		// 1 for usbIn1 .. 4 for usbIn4; 0 for anything else.
+		private int CameraInputTile(string inputKey)
+		{
+			var inputs = new[] { CamInput1, CamInput2, CamInput3, CamInput4 };
+			for (var i = 0; i < inputs.Length; i++)
+				if (inputs[i] != null && string.Equals(inputs[i].Key, inputKey, StringComparison.OrdinalIgnoreCase))
+					return i + 1;
+			return 0;
+		}
+
+		private void ForgetExpectedCameraTile(string inputKey)
+		{
+			if (string.IsNullOrEmpty(inputKey)) return;
+			lock (_participantLock)
+				_expectedCameraTileInputs.RemoveAll(e => string.Equals(e.Key, inputKey, StringComparison.OrdinalIgnoreCase));
+		}
+
+		/// <summary>
+		/// The next child tile to join is the camera on <paramref name="inputKey"/> - called just before
+		/// that camera is turned on for multi-camera in a meeting.
+		/// </summary>
+		private void ExpectCameraTile(string inputKey)
+		{
+			if (!IsInCall || string.IsNullOrEmpty(inputKey)) return;
+			lock (_participantLock)
+			{
+				// Already in the meeting: selecting it again brings no new tile.
+				if (_cameraTileInputByUserId.Values.Any(v => string.Equals(v, inputKey, StringComparison.OrdinalIgnoreCase))) return;
+
+				_expectedCameraTileInputs.RemoveAll(e => string.Equals(e.Key, inputKey, StringComparison.OrdinalIgnoreCase));
+				_expectedCameraTileInputs.Add(new KeyValuePair<string, DateTime>(inputKey, DateTime.UtcNow.AddMilliseconds(CameraTileJoinWindowMs)));
+			}
+		}
+
+		/// <summary>
+		/// Gives each child tile among <paramref name="joinedUserIds"/> (participants new to the
+		/// meeting) the oldest camera input still expecting its tile. Caller holds _participantLock.
+		/// </summary>
+		private void LearnCameraTileInputs(IEnumerable<int> joinedUserIds)
+		{
+			var now = DateTime.UtcNow;
+			_expectedCameraTileInputs.RemoveAll(e => e.Value < now);
+			if (_expectedCameraTileInputs.Count == 0) return;
+
+			var self = _participantInfoByUserId.Values.FirstOrDefault(p => p.IsMySelf);
+			if (self == null) return;
+
+			foreach (var userId in joinedUserIds.OrderBy(id => id))
+			{
+				ParticipantInfo info;
+				if (_expectedCameraTileInputs.Count == 0) break;
+				if (!_participantInfoByUserId.TryGetValue(userId, out info) || info.IsMySelf || info.ParentUserID != self.UserID) continue;
+
+				var input = _expectedCameraTileInputs[0].Key;
+				_expectedCameraTileInputs.RemoveAt(0);
+				_cameraTileInputByUserId[userId] = input;
+				this.LogInformation("Multi-camera: tile userId={UserId} \"{Name}\" is the camera on input '{Input}' (tile {Tile})",
+					userId, info.UserName, input, CameraInputTile(input));
 			}
 		}
 
@@ -76,9 +164,10 @@ namespace PepperDash.Essentials.Plugins
 			}
 
 			var tiles = GetCameraTiles();
-			if (tile < 1 || tile > tiles.Count)
+			if (tile < 1 || tile > tiles.Count || tiles[tile - 1] == null)
 			{
-				this.LogWarning("SetActiveSpeakerCamera({Tile}) ignored: the room has {Count} camera tile(s)", tile, tiles.Count);
+				this.LogWarning("SetActiveSpeakerCamera({Tile}) ignored: that camera tile is not in the meeting ({Count} tile(s))",
+					tile, tiles.Count(t => t != null));
 				return false;
 			}
 
@@ -113,11 +202,20 @@ namespace PepperDash.Essentials.Plugins
 
 			for (var i = 0; i < tiles.Count; i++)
 			{
-				string zoomName;
+				if (tiles[i] == null)
+				{
+					CrestronConsole.ConsoleCommandResponse("tile {0}: no camera in the meeting\r\n", i + 1);
+					continue;
+				}
+
+				string zoomName, input;
 				lock (_participantLock)
+				{
 					if (!_cameraTileZoomNameByUserId.TryGetValue(tiles[i].UserID, out zoomName)) zoomName = tiles[i].UserName;
-				CrestronConsole.ConsoleCommandResponse("tile {0}: userId={1} parent={2} name=\"{3}\" zoomName=\"{4}\" guid=\"{5}\" jid=\"{6}\"\r\n",
-					i + 1, tiles[i].UserID, tiles[i].ParentUserID, tiles[i].UserName, zoomName, tiles[i].UserGUID, tiles[i].AttendeeJid);
+					if (!_cameraTileInputByUserId.TryGetValue(tiles[i].UserID, out input)) input = i == 0 ? "room" : "by Zoom number";
+				}
+				CrestronConsole.ConsoleCommandResponse("tile {0}: userId={1} parent={2} name=\"{3}\" zoomName=\"{4}\" input={5} guid=\"{6}\" jid=\"{7}\"\r\n",
+					i + 1, tiles[i].UserID, tiles[i].ParentUserID, tiles[i].UserName, zoomName, input, tiles[i].UserGUID, tiles[i].AttendeeJid);
 			}
 		}
 	}

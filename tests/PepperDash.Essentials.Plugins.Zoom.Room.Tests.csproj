@@ -24,4 +24,9 @@
     <!-- Ensures the plugin is built before tests run without pulling Crestron deps into test runtime -->
     <ProjectReference Include="..\src\epi-zoom-room.4Series.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Pure logic with no Crestron or SDK dependencies, compiled in so its behaviour can be tested -->
+    <Compile Include="..\src\CameraTileLayout.cs" Link="Plugin\CameraTileLayout.cs" />
+  </ItemGroup>
 </Project>
