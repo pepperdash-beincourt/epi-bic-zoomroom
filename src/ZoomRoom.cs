@@ -1287,6 +1287,9 @@ namespace PepperDash.Essentials.Plugins
 			_currentMeetingNumber = string.Empty;
 			_currentMeetingName = string.Empty;
 			_sdkIsHost = false;
+			// Co-host reaches Mobile Control only through CoHostChanged (host rides MeetingInfo, sent
+			// below), so clearing it silently left the panel showing host controls in the next meeting.
+			var wasCoHost = _sdkIsCoHost;
 			_sdkIsCoHost = false;
 
 			_sdkMeetingLocked = false;
@@ -1320,6 +1323,8 @@ namespace PepperDash.Essentials.Plugins
 			OnCallStatusChange(new CodecActiveCallItem { Status = eCodecCallStatus.Disconnected });
 			UpdateFarEndCameras();
 			UpdateMeetingInfo();
+			if (wasCoHost)
+				CoHostChanged?.Invoke(this, false);
 		}
 
 		private void OnControllerMeetingNeedsPassword(object sender, SdkEventArgs e)
