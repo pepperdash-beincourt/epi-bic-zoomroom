@@ -18,6 +18,11 @@ namespace PepperDash.Essentials.Plugins
 	{
 		private const int CameraTileNameDelayMs = 1500;
 
+		// A tile whose camera just became known (LearnCameraTileInputs) is renamed without waiting for
+		// other tiles to join.
+		private const int CameraTileNameSoonMs = 300;
+		private volatile bool _cameraTileJustTagged;
+
 		private readonly object _cameraTileNamesLock = new object();
 		private string[] _cameraTileNames = new string[0];
 		// The tile each child (by user ID) was last renamed, or tried, for in this meeting - each is tried
@@ -53,16 +58,18 @@ namespace PepperDash.Essentials.Plugins
 			{
 				if (_cameraTileNames.Length == 0 || !IsInCall) return;
 				_cameraTileNameTimer?.Stop();
-				_cameraTileNameTimer = new CTimer(_ => ApplyCameraTileNames(), CameraTileNameDelayMs);
+				_cameraTileNameTimer = new CTimer(_ => ApplyCameraTileNames(), _cameraTileJustTagged ? CameraTileNameSoonMs : CameraTileNameDelayMs);
 			}
 		}
 
 		private void ApplyCameraTileNames()
 		{
+			var soon = _cameraTileJustTagged;
+			_cameraTileJustTagged = false;
 			if (!IsInCall) return;
 
 			var tiles = GetCameraTiles();
-			var renames = new List<KeyValuePair<int, string>>();
+			var renames = new List<(int Tile, string Name, int UserId)>();
 
 			lock (_cameraTileNamesLock)
 			{
@@ -81,13 +88,20 @@ namespace PepperDash.Essentials.Plugins
 					int triedFor;
 					if (_cameraTileRenamesTried.TryGetValue(tiles[i].UserID, out triedFor) && triedFor == i + 1) continue;
 					_cameraTileRenamesTried[tiles[i].UserID] = i + 1;
-					renames.Add(new KeyValuePair<int, string>(i + 1, name));
+					renames.Add((i + 1, name, tiles[i].UserID));
 				}
 			}
 
-			// SDK calls stay outside the locks.
+			// SDK calls stay outside the locks. Zoom may not take a rename this soon after a tile
+			// joined, so a failed early rename is tried once more after the usual delay.
+			var retry = false;
 			foreach (var rename in renames)
-				RenameCameraTile(rename.Key, rename.Value);
+			{
+				if (RenameCameraTile(rename.Tile, rename.Name) == 0 || !soon) continue;
+				lock (_cameraTileNamesLock) _cameraTileRenamesTried.Remove(rename.UserId);
+				retry = true;
+			}
+			if (retry) ScheduleCameraTileNames();
 		}
 
 		private void ResetCameraTileNames()

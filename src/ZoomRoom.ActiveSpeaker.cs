@@ -132,8 +132,12 @@ namespace PepperDash.Essentials.Plugins
 				var input = _expectedCameraTileInputs[0].Key;
 				_expectedCameraTileInputs.RemoveAt(0);
 				_cameraTileInputByUserId[userId] = input;
+				_cameraTileJustTagged = true;
 				this.LogInformation("Multi-camera: tile userId={UserId} \"{Name}\" is the camera on input '{Input}' (tile {Tile})",
 					userId, info.UserName, input, CameraInputTile(input));
+
+				// The tile is in: the next camera waiting to be turned on can go now.
+				ScheduleMultiCameraApply(MultiCameraApplyDelayMs);
 			}
 		}
 

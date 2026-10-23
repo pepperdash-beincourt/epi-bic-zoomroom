@@ -18,9 +18,11 @@ namespace PepperDash.Essentials.Plugins
 	/// </summary>
 	public partial class ZoomRoom
 	{
-		private const int MultiCameraApplyDelayMs = 1000;
+		// Only long enough to leave the caller's thread and gather a burst (all cameras muted at once).
+		private const int MultiCameraApplyDelayMs = 150;
 
-		// After a select in a meeting, how long the next select waits for that camera's tile to join.
+		// After a select in a meeting, the longest the next select waits for that camera's tile to join;
+		// it goes as soon as the tile has joined (LearnCameraTileInputs).
 		private const int MultiCameraJoinWaitMs = 4000;
 
 		private readonly object _multiCameraLock = new object();
