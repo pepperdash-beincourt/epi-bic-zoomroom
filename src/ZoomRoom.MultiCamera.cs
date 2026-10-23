@@ -65,10 +65,17 @@ namespace PepperDash.Essentials.Plugins
 		{
 			if ((ConnectionState)_controller.GetConnectionState() != ConnectionState.Connected) return;
 
-			// Deselects first. In a meeting, selects go one at a time so the tile that joins next is
-			// known to be that camera (ExpectCameraTile); the rest follow once it has had time to join.
+			// Deselects first, then selects in camera input order (usbIn2, usbIn3, ...): the order cameras
+			// are selected in is likely the order Zoom numbers their tiles at the next meeting start. In a
+			// meeting, selects go one at a time so the tile that joins next is known to be that camera
+			// (ExpectCameraTile); the rest follow once it has had time to join.
 			KeyValuePair<string, bool>[] wanted;
-			lock (_multiCameraLock) wanted = _multiCameraWanted.OrderBy(e => e.Value).ToArray();
+			lock (_multiCameraLock)
+				wanted = _multiCameraWanted
+					.OrderBy(e => e.Value)
+					.ThenBy(e => CameraInputTile(e.Key))
+					.ThenBy(e => e.Key, StringComparer.OrdinalIgnoreCase)
+					.ToArray();
 
 			var cameras = _controller.GetCameras() ?? new CameraDevice[0];
 			foreach (var entry in wanted)
