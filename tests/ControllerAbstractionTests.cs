@@ -228,6 +228,15 @@ public class ControllerAbstractionTests
     }
 
     [Fact]
+    public void IZoomRoomController_Has_SelectMultipleCamera_Method()
+    {
+        ControllerInterfaceType
+            .GetMethods()
+            .Should().Contain(m => m.Name == "SelectMultipleCamera",
+                "IZoomRoomController must expose SelectMultipleCamera so a disabled camera's tile can leave the meeting");
+    }
+
+    [Fact]
     public void IZoomRoomController_Has_TryGetBreakoutEnabled_Method()
     {
         ControllerInterfaceType

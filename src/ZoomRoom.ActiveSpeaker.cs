@@ -24,6 +24,10 @@ namespace PepperDash.Essentials.Plugins
 		// keeps its place. Guarded by _participantLock.
 		private readonly Dictionary<int, int> _cameraTileNumberByUserId = new Dictionary<int, int>();
 
+		// The name Zoom gave each child tile when it joined, before any rename - shown by
+		// "zoomActiveSpeaker list" to work out which camera a tile is. Guarded by _participantLock.
+		private readonly Dictionary<int, string> _cameraTileZoomNameByUserId = new Dictionary<int, string>();
+
 		/// <summary>
 		/// The room's camera tiles in tile order: index 0 is the room itself (tile 1), then its child
 		/// tiles ordered by the number Zoom appended to their name when they joined, or by user ID when
@@ -54,6 +58,7 @@ namespace PepperDash.Essentials.Plugins
 			var match = CameraTileSuffix.Match(info.UserName ?? string.Empty);
 			number = match.Success ? int.Parse(match.Groups[1].Value) : int.MaxValue;
 			_cameraTileNumberByUserId[info.UserID] = number;
+			_cameraTileZoomNameByUserId[info.UserID] = info.UserName ?? string.Empty;
 			return number;
 		}
 
@@ -107,8 +112,13 @@ namespace PepperDash.Essentials.Plugins
 			}
 
 			for (var i = 0; i < tiles.Count; i++)
-				CrestronConsole.ConsoleCommandResponse("tile {0}: userId={1} parent={2} name=\"{3}\"\r\n",
-					i + 1, tiles[i].UserID, tiles[i].ParentUserID, tiles[i].UserName);
+			{
+				string zoomName;
+				lock (_participantLock)
+					if (!_cameraTileZoomNameByUserId.TryGetValue(tiles[i].UserID, out zoomName)) zoomName = tiles[i].UserName;
+				CrestronConsole.ConsoleCommandResponse("tile {0}: userId={1} parent={2} name=\"{3}\" zoomName=\"{4}\" guid=\"{5}\" jid=\"{6}\"\r\n",
+					i + 1, tiles[i].UserID, tiles[i].ParentUserID, tiles[i].UserName, zoomName, tiles[i].UserGUID, tiles[i].AttendeeJid);
+			}
 		}
 	}
 }

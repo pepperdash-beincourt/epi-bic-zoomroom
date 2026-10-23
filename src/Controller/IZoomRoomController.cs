@@ -196,6 +196,12 @@ namespace PepperDash.Essentials.Plugins
         /// <summary>Renames a camera in the Zoom Room's settings (persistent). Returns the SDK code (141 = name can't be set).</summary>
         int SetCameraDisplayName(string deviceId, string displayName);
 
+        /// <summary>
+        /// Selects or deselects a camera for multi-camera (persistent Zoom Room setting), adding or
+        /// removing its tile in a meeting. Returns the SDK code (136/137/138 = multi-camera refusals).
+        /// </summary>
+        int SelectMultipleCamera(string deviceId, bool selected);
+
         // ── Third-party (integration) meetings ────────────────────────────────
 
         /// <summary>Joins a Teams / Webex / Google (...) meeting by ID. Returns the SDK code (0 = request accepted).</summary>

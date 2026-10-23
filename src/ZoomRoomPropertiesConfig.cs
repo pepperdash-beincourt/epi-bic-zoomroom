@@ -107,6 +107,16 @@ namespace PepperDash.Essentials.Plugins
         [JsonProperty("fixedMicVolume", NullValueHandling = NullValueHandling.Ignore)]
         public int? FixedMicVolume { get; set; }
 
+        /// <summary>
+        /// Optional. The Zoom Room camera on each of its camera inputs, keyed by input port
+        /// (e.g. <c>"usbIn2": "&lt;camera&gt;"</c>), matched against the camera's id, name, alias or
+        /// display name as <c>zoomMultiCamera list</c> shows them. The room turns a listed input's
+        /// camera on and off for multi-camera when that camera is enabled or disabled, so its tile
+        /// joins or leaves the meeting. Inputs not listed (the room's own camera) are never changed.
+        /// </summary>
+        [JsonProperty("multiCameraInputs", NullValueHandling = NullValueHandling.Ignore)]
+        public System.Collections.Generic.Dictionary<string, string> MultiCameraInputs { get; set; }
+
         // communicationMonitorProperties is kept for back-compat but is no longer used —
         // the SDK is event-driven and requires no polling.
     }

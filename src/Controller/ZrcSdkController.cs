@@ -673,6 +673,8 @@ namespace PepperDash.Essentials.Plugins
             => Guard(nameof(GetInterOperabilityInfo)) ? _sdk.GetInterOperabilityInfo(provider) : null;
         public int SetCameraDisplayName(string deviceId, string displayName)
             => Guard(nameof(SetCameraDisplayName)) ? Rc(nameof(SetCameraDisplayName), _sdk.SetCameraDisplayName(deviceId, displayName)) : -1;
+        public int SelectMultipleCamera(string deviceId, bool selected)
+            => Guard(nameof(SelectMultipleCamera)) ? Rc(nameof(SelectMultipleCamera), _sdk.SelectMultipleCamera(deviceId, selected)) : -1;
         public bool SetCurrentCamera(string deviceId)   => Guard(nameof(SetCurrentCamera)) && Rc(nameof(SetCurrentCamera), _sdk.SetCurrentCamera(deviceId));
         public bool SetCameraPreset(uint index, string deviceId)  => Guard(nameof(SetCameraPreset)) && Rc(nameof(SetCameraPreset), _sdk.SetCameraPreset(index, deviceId ?? ""));
         public bool GoToCameraPreset(uint index, string deviceId) => Guard(nameof(GoToCameraPreset)) && Rc(nameof(GoToCameraPreset), _sdk.GoToCameraPreset(index, deviceId ?? ""));

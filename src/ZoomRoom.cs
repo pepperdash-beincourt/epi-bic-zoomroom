@@ -710,6 +710,10 @@ namespace PepperDash.Essentials.Plugins
 				"zoomRenameTile", "Rename a camera tile in this meeting: [deviceKey] list | <tile> <name>", ConsoleAccessLevelEnum.AccessOperator);
 
 			CrestronConsole.AddNewConsoleCommand(
+				s => ForPairingTarget(s, (r, arg) => r.MultiCameraConsoleCommand(arg)),
+				"zoomMultiCamera", "Cameras in multi-camera: [deviceKey] list | <n> on|off", ConsoleAccessLevelEnum.AccessOperator);
+
+			CrestronConsole.AddNewConsoleCommand(
 				s => ForPairingTarget(s, (r, arg) => r.InteropConsoleCommand(arg)),
 				"zoomInterop", "Teams/Webex/Google: [deviceKey] info|join <svc> <id> [pass]|leave", ConsoleAccessLevelEnum.AccessOperator);
 		}
@@ -872,6 +876,8 @@ namespace PepperDash.Essentials.Plugins
 			{
 				SeedSpeakerVolume();
 				ScheduleFixedAudioLevels("controller connected");
+				// The multi-camera selection is a persistent Zoom Room setting; put back what the room wants.
+				ScheduleMultiCameraApply(3000);
 
 				// Populate near-end cameras from the SDK device list (real device IDs).
 				SetUpCameras();
@@ -1315,6 +1321,7 @@ namespace PepperDash.Essentials.Plugins
 				_spotlightedUserIds.Clear();
 				_participantInfoByUserId.Clear();
 				_cameraTileNumberByUserId.Clear();
+				_cameraTileZoomNameByUserId.Clear();
 				Participants.CurrentParticipants = new System.Collections.Generic.List<Participant>();
 			}
 			RaisePinSpotlightChanged();
