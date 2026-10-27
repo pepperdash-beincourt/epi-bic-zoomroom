@@ -20,13 +20,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Crestron.SimplSharp.SDK.ProgramLibrary" Version="2.21.128" />
+    <PackageReference Include="Crestron.SimplSharp.SDK.ProgramLibrary" Version="2.21.274" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="PepperDash.ZoomRoom.Sdk" Version="2.0.0-csv-zrc-sandbox.10" GeneratePathProperty="true" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="PepperDashEssentials" Version="3.0.0-fix-surface-masked-device-instantiation-errors.1">
+    <PackageReference Include="PepperDashEssentials" Version="3.0.0-rc.19">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
   </ItemGroup>
